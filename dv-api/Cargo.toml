@@ -1,0 +1,51 @@
+[package]
+name = "dv-api"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+tokio.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+
+
+autox = { path = "../autox" }
+os2 = { path = "../os2" }
+utf8path2 = { path = "../utf8path2" }
+
+e4pty = { version = "0.1" }
+bitflags = "2.9"
+tempfile = "3.19"
+etc-os-release = "0.1"
+fastrand = "2.3"
+home = { workspace = true }
+russh = { version = "0.52", features = [
+    "async-trait",
+], git = "https://github.com/km0e/russh.git", branch = "pty" }
+# russh = { version = "0.52", features = [
+#     "async-trait",
+# ], path = "../../russh/russh" }
+russh-config = "0.50"
+russh-sftp = "2.1"
+rustix = { version = "1.0", features = ["pty"] }
+walkdir = "2.5.0"
+strum = { version = "0.27", features = ["derive"] }
+thiserror = "2.0"
+resplus = { version = "0.1", features = ["full"] }
+regex = "1.11"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_System_SystemServices",
+    "Win32_Security",
+] }
+
+[target.'cfg(not(windows))'.dependencies]
+rustix-openpty = "0.2"
+zbus = "5.6"
+
+[features]
+default = []
+full = []

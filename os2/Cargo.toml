@@ -1,0 +1,17 @@
+[package]
+name = "os2"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+rune = ["dep:rune"]
+serde = ["dep:serde"]
+
+[dependencies]
+rune = { version = "0.14", optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+strum = { version = "0.27", features = ["derive"] }

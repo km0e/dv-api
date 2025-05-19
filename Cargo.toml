@@ -1,0 +1,27 @@
+[workspace]
+members = ["autox", "dv-api", "dv-wrap", "e4pty", "os2", "utf8path2"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+authors = ["km0e <kmdr.error@gmail.com>"]
+repository = "https://github.com/km0e/dev-vault.git"
+
+[workspace.dependencies]
+tokio = { version = "1.45", features = [
+    "fs",
+    "io-std",
+    "rt-multi-thread",
+    "macros",
+] }
+tracing = { version = "0.1" }
+async-trait = "0.1"
+home = { version = "0.5" }
+
+[profile.release]
+lto = true
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "fat"
