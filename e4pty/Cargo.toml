@@ -1,6 +1,6 @@
 [package]
 name = "e4pty"
-version = "0.1.5"
+version = "0.1.6"
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -11,9 +11,10 @@ license = "MIT"
 async-trait.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+resplus.workspace = true
+
 tempfile = "3.20"
 thiserror = "2.0"
-resplus = { version = "0.1", features = ["full"] }
 
 [target.'cfg(not(windows))'.dependencies]
 rustix-openpty = "0.2"
@@ -23,7 +24,6 @@ rustix = { version = "1.0", features = ["process"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [
-    "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_System_Console",
     "Win32_System_Pipes",

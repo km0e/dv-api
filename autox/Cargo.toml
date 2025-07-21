@@ -21,4 +21,4 @@ scopeguard = "1.2"
 
 
 [target.'cfg(not(windows))'.dependencies]
-zbus = "5.6"
+zbus = "5.9"

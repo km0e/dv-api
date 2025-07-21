@@ -202,32 +202,14 @@ impl<'a> CopyContext<'a> {
             "copy {}:{} -> {}:{}",
             self.src_uid, src_path, self.dst_uid, dst_path
         );
-        let confirm =
-            |fa: dv_api::Result<FileAttributes>, is_dir: bool| -> Result<FileAttributes> {
-                match fa {
-                    Ok(fa) if fa.is_dir() != is_dir => {
-                        whatever!(
-                            "{} is {} a directory",
-                            dst_path,
-                            is_dir.then_some("not ").unwrap_or_default()
-                        )
-                    }
-                    Err(e) if !e.is_not_found() => Err(e)?,
-                    Ok(fa) => Ok(fa),
-                    _ => Ok(FileAttributes::default()),
-                }
-            };
         if src_path.ends_with('/') {
             let DirInfo { path, files } = self.src.check_dir(src_path).await?;
-            let (dst_path, fa) = self.dst.check_file(dst_path.into()).await;
-            confirm(fa, true)?;
-            self.check_copy_dir(path, dst_path, files).await
+            self.check_copy_dir(path, dst_path.into(), files).await
         } else {
             let info = self.src.check_path(src_path).await?;
             let dst_path2 = if dst_path.ends_with('/') {
                 format!(
-                    "{}{}",
-                    dst_path,
+                    "{dst_path}{}",
                     src_path
                         .rsplit_once('/')
                         .map(|(_, name)| name)
@@ -239,10 +221,11 @@ impl<'a> CopyContext<'a> {
             };
             let (dst_path2, fa) = self.dst.check_file(dst_path2.as_ref().into()).await;
             match info {
-                CheckInfo::Dir(dir) => self.check_copy_dir(dir.path, dst_path2, dir.files).await,
-                CheckInfo::File(file) => {
-                    self.check_copy_file(&file.path, &dst_path2, file.attr, fa)
-                        .await
+                CheckInfo::Dir(DirInfo { path, files }) => {
+                    self.check_copy_dir(path, dst_path2, files).await
+                }
+                CheckInfo::File(Metadata { path, attr }) => {
+                    self.check_copy_file(&path, &dst_path2, attr, fa).await
                 }
             }
         }

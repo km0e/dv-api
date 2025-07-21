@@ -33,7 +33,7 @@ impl User {
     }
     fn normalize<'a>(&self, path: impl Into<&'a U8Path>) -> Cow<'a, U8Path> {
         let path: &'a U8Path = path.into();
-        let path = if path.has_root() {
+        if path.has_root() {
             Cow::Borrowed(path)
         } else {
             if VARIABLE_RE
@@ -43,15 +43,13 @@ impl User {
                 //TODO: replace variables
                 return Cow::Borrowed(path);
             }
-            let path = match (path.starts_with("~"), self.vars.get("mount")) {
+            match (path.starts_with("~"), self.vars.get("mount")) {
                 (false, Some(mount)) => {
                     U8PathBuf::from(format!("{}/{}", mount.as_str(), path.as_str())).into()
                 }
                 _ => path.into(),
-            };
-            path
-        };
-        path
+            }
+        }
     }
     pub fn os(&self) -> Os {
         self.vars["os"].as_str().into()

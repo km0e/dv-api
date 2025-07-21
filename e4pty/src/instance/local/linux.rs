@@ -35,6 +35,10 @@ impl PtyWriter for File {
         )?;
         Ok(())
     }
+
+    async fn eof(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 impl PtyReader for File {}

@@ -14,9 +14,7 @@ pub mod ops;
 mod device;
 pub use device::DeviceInfo;
 
-mod utils;
-mod error {
-
+pub mod error {
     #[derive(thiserror::Error, Debug)]
     pub enum Error {
         #[error("dv-api error: {0}")]
@@ -46,9 +44,9 @@ mod error {
     );
     impl ErrorChain {
         pub fn is_not_found(&self) -> bool {
-            if let Error::IO(ref e) = self.0.source {
+            if let Error::IO(e) = self.src() {
                 e.kind() == std::io::ErrorKind::NotFound
-            } else if let Error::DvApi(ref e) = self.0.source {
+            } else if let Error::DvApi(e) = self.src() {
                 e.is_not_found()
             } else {
                 false

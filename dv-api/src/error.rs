@@ -42,11 +42,11 @@ pub type Result<T, E = ErrorChain> = std::result::Result<T, E>;
 
 impl ErrorChain {
     pub fn is_not_found(&self) -> bool {
-        if let Error::IO(ref e) = self.0.source {
+        if let Error::IO(e) = self.src() {
             e.kind() == std::io::ErrorKind::NotFound
         } else {
             matches!(
-                self.0.source,
+                self.src(),
                 Error::SFTP(russh_sftp::client::error::Error::Status(
                     russh_sftp::protocol::Status {
                         status_code: russh_sftp::protocol::StatusCode::NoSuchFile,

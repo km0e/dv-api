@@ -44,7 +44,7 @@ impl SSHSession {
                 whatever!("unknown home")
             };
             if path.starts_with("/") {
-                format!("{}{}", home, path).into()
+                format!("{home}{path}").into()
             } else {
                 home.into()
             }
@@ -110,7 +110,7 @@ impl SSHSession {
                     retry -= 1;
                     name.clear();
                 }
-                let cmd = format!("{} {}", executor, name);
+                let cmd = format!("{executor} {name}");
                 cmd
             }
         };
@@ -212,10 +212,11 @@ impl UserImpl for SSHSession {
         })
     }
     async fn pty(&self, command: Script<'_, '_>, win_size: WindowSize) -> Result<BoxedPty> {
+        debug!("open pty with size: {:?}", win_size);
         let channel = self.session.channel_open_session().await?;
         channel
             .request_pty(
-                true,
+                false,
                 std::env::var("TERM").as_deref().unwrap_or("xterm"),
                 win_size.cols as u32,
                 win_size.rows as u32,
@@ -224,8 +225,8 @@ impl UserImpl for SSHSession {
                 &[],
             )
             .await?;
-        // info!("exec {}", command);
         let cmd = self.prepare_command(command).await?;
+        info!("exec {}", cmd);
         channel.exec(true, cmd).await?;
         Ok(channel.into_pty())
     }

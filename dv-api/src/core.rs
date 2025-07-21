@@ -3,14 +3,20 @@ use std::{fmt::Debug, sync::LazyLock};
 use crate::{Result, fs::*};
 use e4pty::prelude::*;
 
+#[cfg(feature = "regex")]
+use regex::Regex;
+
+#[cfg(feature = "regex_lite")]
+use regex_lite::Regex;
+
 pub struct Output {
     pub code: i32,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
 }
 
-pub static VARIABLE_RE: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"\$\{([^}]+)\}").expect("invalid regex"));
+pub static VARIABLE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\$\{([^}]+)\}").expect("invalid regex"));
 
 #[async_trait::async_trait]
 pub trait UserImpl {

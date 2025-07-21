@@ -14,6 +14,7 @@ pub struct WindowSize {
 #[async_trait]
 pub trait PtyWriter: AsyncWrite {
     async fn window_change(&self, width: u16, height: u16) -> Result<()>;
+    async fn eof(&self) -> Result<()>;
 }
 
 pub type BoxedPtyWriter = Box<dyn PtyWriter + Send + Sync + Unpin>;

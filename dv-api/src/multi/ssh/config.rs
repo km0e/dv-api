@@ -41,7 +41,10 @@ pub async fn create(host: String, info: &mut Config) -> Result<BoxedUser> {
 
 async fn connect(host: &str, passwd: Option<String>) -> Result<(Handle<Client>, String)> {
     let host_cfg = flog!(russh_config::parse_home(&host), ..)?; //with host
-    let config = client::Config::default();
+    let config = client::Config {
+        inactivity_timeout: Some(std::time::Duration::from_secs(5)),
+        ..Default::default()
+    };
     let config = Arc::new(config);
     let sh = Client {};
 
