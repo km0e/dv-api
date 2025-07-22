@@ -17,21 +17,21 @@ mod source;
 #[derive(Debug, Default, Clone)]
 pub struct DotConfig {
     pub name: String,
-    pub copy_action: Option<String>,
+    pub copy_action: String,
 }
 
 impl DotConfig {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            copy_action: None,
+            copy_action: String::new(),
         }
     }
 }
 
 #[derive(Default)]
 pub struct DotUtil {
-    copy_action: Option<String>,
+    copy_action: String,
     schema: SchemaStorage,
     source: HashMap<String, Box<dyn Source>>,
 }
@@ -39,7 +39,7 @@ pub struct DotUtil {
 impl DotUtil {
     pub fn new(copy_action: Option<String>) -> Self {
         Self {
-            copy_action,
+            copy_action: copy_action.unwrap_or_default(),
             schema: SchemaStorage::default(),
             source: HashMap::new(),
         }
@@ -87,7 +87,7 @@ impl DotUtil {
             let Some(schema) = self.schema.search_compatible(dst_u.os(), &opt.name) else {
                 whatever!("app {} not found in schema", opt.name)
             };
-            opt.copy_action = opt.copy_action.or_else(|| self.copy_action.clone());
+            opt.copy_action = opt.copy_action + &self.copy_action;
             source.sync(ctx, &opt, dst.as_ref(), schema).await?;
         }
         Ok(())

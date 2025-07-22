@@ -21,7 +21,7 @@ pub struct CopyContext<'a> {
     src_uid: &'a str,
     dst: &'a User,
     dst_uid: &'a str,
-    pub opt: Option<&'a str>,
+    pub opt: &'a str,
 }
 
 impl<'a> Deref for CopyContext<'a> {
@@ -39,10 +39,8 @@ impl<'a> CopyContext<'a> {
     ) -> Result<Self> {
         let src = ctx.get_user(src_uid)?;
         let dst = ctx.get_user(dst_uid)?;
-        if let Some(_opt) = opt {
-            if !matches!(_opt, "y" | "n" | "u") {
-                opt = None;
-            }
+        if opt.is_some_and(|o| !o.chars().all(|c| c == 'y' || c == 'n' || c == 'u')) {
+            opt = None;
         }
         Ok(Self {
             ctx,
@@ -50,7 +48,7 @@ impl<'a> CopyContext<'a> {
             src_uid,
             dst,
             dst_uid,
-            opt,
+            opt: opt.unwrap_or(""),
         })
     }
 
@@ -93,41 +91,47 @@ impl<'a> CopyContext<'a> {
             dst_attr.as_ref().map(|a| a.mtime),
             cache
         );
-        let res = match (self.opt, overwrite, update) {
-            (Some("y"), true, _) => Some(true),
-            (Some("u"), _, true) => Some(false),
-            (Some("n"), _, _) => None,
-            (_, false, false) => None,
-            _ => {
-                let mut hint = String::new();
-                let mut opts = Vec::new();
-                if overwrite {
-                    hint.push_str(self.src_uid);
-                    hint.push(':');
-                    hint.push_str(src_path.as_str());
-                    hint.push_str(" is newer, ");
-                    opts.push("y/overwrite");
-                }
-                if update {
-                    hint.push_str(self.dst_uid);
-                    hint.push(':');
-                    hint.push_str(dst_path.as_str());
-                    hint.push_str(" is newer, ");
-                    opts.push("u/update");
-                }
-                hint.push_str("do what?");
-                opts.push("n/skip");
-                let sel = self.interactor.confirm(hint, &opts).await?;
-                match opts[sel].chars().nth(0) {
-                    Some('y') => Some(true),
-                    Some('u') => Some(false),
-                    Some('n') => None,
-                    _ => unreachable!(),
+        let res = 'check_opt: {
+            if !overwrite && !update {
+                break 'check_opt None;
+            }
+            for opt in self.opt.chars() {
+                match opt {
+                    'y' if overwrite => break 'check_opt Some(false),
+                    'u' if update => break 'check_opt Some(true),
+                    'n' => break 'check_opt None,
+                    _ => continue,
                 }
             }
+            let mut hint = String::new();
+            let mut opts = Vec::new();
+            if overwrite {
+                hint.push_str(self.src_uid);
+                hint.push(':');
+                hint.push_str(src_path.as_str());
+                hint.push_str(" is newer, ");
+                opts.push("y/overwrite");
+            }
+            if update {
+                hint.push_str(self.dst_uid);
+                hint.push(':');
+                hint.push_str(dst_path.as_str());
+                hint.push_str(" is newer, ");
+                opts.push("u/update");
+            }
+            hint.push_str("do what?");
+            opts.push("n/skip");
+            let sel = self.interactor.confirm(hint, &opts).await?;
+            match opts[sel].chars().nth(0) {
+                Some('y') => Some(false),
+                Some('u') => Some(true),
+                Some('n') => None,
+                _ => unreachable!(),
+            }
         };
-        if let Some(do_) = if !self.dry_run { res } else { None } {
-            let (src_ts, dst_ts) = if do_ {
+
+        if let Some(rev) = if !self.dry_run { res } else { None } {
+            let (src_ts, dst_ts) = if !rev {
                 try_copy(self.src, src_path, self.dst, dst_path).await?;
                 let src_ts = match src_attr.mtime {
                     Some(ts) => Some(ts as i64),
@@ -379,7 +383,7 @@ mod tests {
             ctx.copy("src/", "dst").await.unwrap(),
             "sync should success"
         );
-        ctx.opt = Some("n");
+        ctx.opt = "n";
         assert!(
             !ctx.copy("src/", "dst").await.unwrap(),
             "sync should do nothing"

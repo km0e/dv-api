@@ -39,8 +39,7 @@ impl SourceAction for Op<'_> {
         dst: &str,
         schema: &AppSchema,
     ) -> Result<()> {
-        let mut copy_ctx = crate::ops::CopyContext::new(ctx, self.user, dst, None)?;
-        copy_ctx.opt = opt.copy_action.as_deref();
+        let copy_ctx = crate::ops::CopyContext::new(ctx, self.user, dst, Some(&opt.copy_action))?;
         for (name, cfg) in &self.source.paths {
             let Some(dst_cfg) = schema.paths.get(name) else {
                 continue;

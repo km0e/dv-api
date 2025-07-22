@@ -4,7 +4,7 @@ pub async fn install(u: &User, interactor: &DynInteractor, packages: &str) -> Re
     super::install(
         u,
         interactor,
-        format!("pkgs=\"{}\";", packages),
+        format!("pkgs=\"{packages}\";"),
         include_str!("sh/apt_query.sh"),
         "apt-get",
         &["install", "-y"][..],

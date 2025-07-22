@@ -20,7 +20,6 @@ pub static VARIABLE_RE: LazyLock<Regex> =
 
 #[async_trait::async_trait]
 pub trait UserImpl {
-    //FIX:about path encoding, should I use Utf8Path?
     //TODO:better path handling
     async fn file_attributes(&self, path: &U8Path) -> (U8PathBuf, Result<FileAttributes>);
     async fn exist(&self, path: &U8Path) -> Result<bool>;
