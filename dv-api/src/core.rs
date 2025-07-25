@@ -1,13 +1,7 @@
-use std::{fmt::Debug, sync::LazyLock};
+use std::fmt::Debug;
 
 use crate::{Result, fs::*};
 use e4pty::prelude::*;
-
-#[cfg(feature = "regex")]
-use regex::Regex;
-
-#[cfg(feature = "regex_lite")]
-use regex_lite::Regex;
 
 pub struct Output {
     pub code: i32,
@@ -15,17 +9,13 @@ pub struct Output {
     pub stderr: Vec<u8>,
 }
 
-pub static VARIABLE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\$\{([^}]+)\}").expect("invalid regex"));
-
 #[async_trait::async_trait]
 pub trait UserImpl {
     //TODO:better path handling
-    async fn file_attributes(&self, path: &U8Path) -> (U8PathBuf, Result<FileAttributes>);
+    async fn file_attributes(&self, path: &U8Path) -> Result<(U8PathBuf, Option<FileAttributes>)>;
     async fn exist(&self, path: &U8Path) -> Result<bool>;
     async fn glob_file_meta(&self, path: &U8Path) -> Result<Vec<Metadata>>;
     async fn open(&self, path: &str, flags: OpenFlags, attr: FileAttributes) -> Result<BoxedFile>;
-    async fn auto(&self, name: &str, action: &str, args: Option<&str>) -> Result<()>;
     async fn exec(&self, command: Script<'_, '_>) -> Result<Output>;
     async fn pty(&self, command: Script<'_, '_>, win_size: WindowSize) -> Result<BoxedPty>;
 }

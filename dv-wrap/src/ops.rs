@@ -5,8 +5,6 @@ mod dev {
     pub use dv_api::whatever;
 }
 
-mod auto;
-pub use auto::auto;
 mod copy;
 pub use copy::CopyContext;
 mod exec;

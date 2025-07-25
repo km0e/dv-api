@@ -26,6 +26,10 @@ impl Config {
     pub fn remove(&mut self, key: impl AsRef<str>) -> Option<String> {
         self.variables.remove(key.as_ref())
     }
+
+    pub fn session(&self) -> Option<&String> {
+        self.get("XDG_SESSION_TYPE")
+    }
 }
 
 mod local;

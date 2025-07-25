@@ -1,10 +1,9 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::borrow::Cow;
 
-use crate::{util::BoxedCommandUtil, whatever};
+use crate::whatever;
 
 use super::dev::{self, *};
 use e4pty::prelude::{BoxedPty, Script, WindowSize};
-use resplus::attach;
 use russh::client;
 use russh_sftp::{
     client::SftpSession,
@@ -32,14 +31,12 @@ impl client::Handler for Client {
 pub(crate) struct SSHSession {
     session: client::Handle<Client>,
     sftp: SftpSession,
-    env: HashMap<String, String>,
     home: Option<String>,
-    command_util: BoxedCommandUtil<Self>,
 }
 
 impl SSHSession {
-    fn canonicalize<'a, 'b: 'a>(&'b self, path: &'a str) -> Result<std::borrow::Cow<'a, str>> {
-        let path: Cow<str> = if let Some(path) = path.strip_prefix("~") {
+    fn canonicalize<'a, 'b: 'a>(&'b self, path: &'a str) -> Result<Cow<'a, str>> {
+        Ok(if let Some(path) = path.strip_prefix("~") {
             let Some(home) = self.home.as_deref() else {
                 whatever!("unknown home")
             };
@@ -50,25 +47,7 @@ impl SSHSession {
             }
         } else {
             path.into()
-        };
-
-        let mut new = String::with_capacity(path.len());
-        let mut last_match = 0;
-        for caps in VARIABLE_RE.captures_iter(&path) {
-            let m = caps.get(0).unwrap();
-            let var = caps.get(1).unwrap().as_str();
-            let Some(value) = self.env.get(var) else {
-                whatever!("unknown variable {}", var)
-            };
-            new.push_str(&path[last_match..m.start()]);
-            new.push_str(value);
-            last_match = m.end();
-        }
-        if last_match == 0 {
-            return Ok(path);
-        }
-        new.push_str(&path[last_match..]);
-        Ok(new.into())
+        })
     }
     async fn prepare_command(&self, command: Script<'_, '_>) -> Result<String> {
         let cmd = match command {
@@ -139,20 +118,23 @@ impl SSHSession {
 #[async_trait]
 impl UserImpl for SSHSession {
     async fn exist(&self, path: &U8Path) -> Result<bool> {
-        let path2 = attach!(self.canonicalize(path.as_str()), ..)?;
+        let path2 = self.canonicalize(path.as_str())?;
         let path = path2.as_ref();
         Ok(self.sftp.try_exists(path).await?)
     }
-    async fn file_attributes(&self, path: &U8Path) -> (U8PathBuf, Result<FileAttributes>) {
-        let path2 = attach!(self.canonicalize(path.as_str()), ..);
-        if path2.is_err() {
-            return (path.into(), Err(path2.unwrap_err()));
+    async fn file_attributes(&self, path: &U8Path) -> Result<(U8PathBuf, Option<FileAttributes>)> {
+        let path = self.canonicalize(path.as_str())?.to_string();
+        match self.sftp.metadata(&path).await {
+            Ok(attr) => Ok((path.into(), Some(attr))),
+            Err(russh_sftp::client::error::Error::Status(russh_sftp::protocol::Status {
+                status_code: russh_sftp::protocol::StatusCode::NoSuchFile,
+                ..
+            })) => {
+                debug!("{} not found", path);
+                Ok((path.into(), None))
+            }
+            Err(e) => Err(e.into()),
         }
-        let path = path2.unwrap();
-        (
-            path.to_string().into(),
-            self.sftp.metadata(path).await.map_err(|e| e.into()),
-        )
     }
     async fn glob_file_meta(&self, path: &U8Path) -> crate::Result<Vec<Metadata>> {
         let metadata = self.sftp.metadata(path.to_string()).await?;
@@ -181,19 +163,6 @@ impl UserImpl for SSHSession {
         } else {
             whatever!("{path} is a {:?}", metadata.file_type())
         }
-    }
-    async fn auto(&self, name: &str, action: &str, _: Option<&str>) -> crate::Result<()> {
-        //TODO:`destroy` action
-        let ec = match action {
-            "setup" => self.command_util.setup(self, name),
-            "reload" => self.command_util.reload(self, name),
-            _ => whatever!("unimplemented {}", action),
-        }
-        .await?;
-        if ec != 0 {
-            whatever!("exec {} {} fail", action, name);
-        }
-        Ok(())
     }
     async fn exec(&self, command: Script<'_, '_>) -> Result<Output> {
         let channel = self.session.channel_open_session().await?;
@@ -231,7 +200,7 @@ impl UserImpl for SSHSession {
         Ok(channel.into_pty())
     }
     async fn open(&self, path: &str, flags: OpenFlags, attr: FileAttributes) -> Result<BoxedFile> {
-        let path2 = attach!(self.canonicalize(path), ..)?;
+        let path2 = self.canonicalize(path)?;
         let path = path2.as_ref();
 
         let open_flags = flags.into();
@@ -245,7 +214,7 @@ impl UserImpl for SSHSession {
                 Err(russh_sftp::client::error::Error::Status(s))
                     if s.status_code == StatusCode::NoSuchFile =>
                 {
-                    attach!(self.create_parent(path), ..).await?;
+                    self.create_parent(path).await?;
                 }
                 Err(e) => break Err(e),
             }

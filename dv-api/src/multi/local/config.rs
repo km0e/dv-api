@@ -1,22 +1,6 @@
 use os2::Os;
-use tracing::warn;
 
 use super::{This, dev::*};
-
-fn detect() -> Os {
-    if cfg!(target_os = "linux") {
-        etc_os_release::OsRelease::open()
-            .inspect_err(|e| warn!("can't open [/etc/os-release | /usr/lib/os-release]: {}", e))
-            .map(|os_release| os_release.id().into())
-            .unwrap_or("linux".into())
-    } else if cfg!(target_os = "macos") {
-        "macos".into()
-    } else if cfg!(target_os = "windows") {
-        "windows".into()
-    } else {
-        "unknown".into()
-    }
-}
 
 #[cfg(windows)]
 fn is_user_admin() -> bool {
@@ -61,34 +45,26 @@ fn is_user_admin() -> bool {
 }
 
 pub async fn create(info: &mut Config) -> Result<BoxedUser> {
-    if let Some(session) = {
-        #[cfg(unix)]
-        {
-            std::env::var("XDG_SESSION_TYPE").ok()
+    info.variables.extend(std::env::vars());
+
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        let name = if cfg!(target_os = "windows") {
+            "USERNAME"
+        } else if cfg!(target_os = "linux") {
+            "USER"
+        } else {
+            unreachable!()
+        };
+        if let Some(p) = info.variables.get(name) {
+            info.set("user", p.clone());
         }
-        #[cfg(target_os = "windows")]
-        {
-            None::<String>
-        }
-    } {
-        info.set("SESSION", session);
     }
-    if let Some(user) = {
-        #[cfg(unix)]
-        {
-            std::env::var("USER").ok()
-        }
-        #[cfg(target_os = "windows")]
-        {
-            std::env::var("USERNAME").ok()
-        }
-    } {
-        info.set("USER", user);
-    }
+
     info.is_system.get_or_insert_with(is_user_admin);
 
-    let u: BoxedUser = This::new(info.is_system.unwrap()).await?.into();
-    let os = detect();
+    let u: BoxedUser = This::new().await?.into();
+    let os = os2::detect();
     match info.get("os") {
         Some(os_str) if Os::from(os_str).compatible(&os) => {}
         _ => {

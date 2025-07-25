@@ -6,4 +6,4 @@ pub mod prelude {
 mod core;
 mod error;
 mod instance;
-pub use error::{Error, ErrorChain, Result};
+pub use error::{Error, Result};

@@ -18,7 +18,7 @@ pub mod error {
     #[derive(thiserror::Error, Debug)]
     pub enum Error {
         #[error("dv-api error: {0}")]
-        DvApi(#[from] dv_api::error::ErrorChain),
+        DvApi(#[from] dv_api::error::Error),
         #[error("sqlite error: {0}")]
         Sqlite(#[from] rusqlite::Error),
         #[error("io error: {0}")]
@@ -35,25 +35,18 @@ pub mod error {
         }
     }
 
-    resplus::define!(
-        rusqlite::Error,
-        dv_api::error::ErrorChain,
-        std::io::Error,
-        toml::de::Error,
-        Error
-    );
-    impl ErrorChain {
+    impl Error {
         pub fn is_not_found(&self) -> bool {
-            if let Error::IO(e) = self.src() {
+            if let Error::IO(e) = self {
                 e.kind() == std::io::ErrorKind::NotFound
-            } else if let Error::DvApi(e) = self.src() {
+            } else if let Error::DvApi(e) = self {
                 e.is_not_found()
             } else {
                 false
             }
         }
     }
-    pub type Result<T, E = ErrorChain> = std::result::Result<T, E>;
+    pub type Result<T, E = Error> = std::result::Result<T, E>;
 }
 
 mod dev {
@@ -62,3 +55,5 @@ mod dev {
     pub use dv_api::fs::*;
     pub use dv_api::process::*;
 }
+
+mod utils;

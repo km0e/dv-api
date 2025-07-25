@@ -9,31 +9,24 @@ repository.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 async-trait.workspace = true
-resplus.workspace = true
 home.workspace = true
 
-
-autox = { path = "../autox" }
 os2 = { path = "../os2" }
 utf8path2 = { path = "../utf8path2" }
 
 e4pty = { version = "0.1" }
 bitflags = "2.9"
 tempfile = "3.20"
-etc-os-release = "0.1"
-
 fastrand = "2.3"
 russh = { version = "0.53", features = [
-    "async-trait",
+    "pty",
 ], git = "https://github.com/km0e/russh.git", branch = "pty" }
-russh-config = "0.50"
+russh-config = { git = "https://github.com/km0e/russh.git", branch = "pty" }
 russh-sftp = "2.1"
 rustix = { version = "1.0", features = ["pty"] }
 walkdir = "2.5.0"
 strum = { version = "0.27", features = ["derive"] }
 thiserror = "2.0"
-regex = { version = "1.11", optional = true }
-regex-lite = { version = "0.1", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.60", features = [
@@ -43,11 +36,7 @@ windows-sys = { version = "0.60", features = [
 
 [target.'cfg(not(windows))'.dependencies]
 rustix-openpty = "0.2"
-zbus = "5.9"
 
 [features]
-default = ["regex_lite"]
-regex_lite = ["dep:regex-lite"]
-regex = ["dep:regex"]
+default = []
 full = ["default"]
-fast = ["regex"]

@@ -1,7 +1,7 @@
 use std::{borrow::Cow, ops::Deref};
 
 use super::dev::*;
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace};
 
 pub async fn try_copy(src: &User, src_path: &U8Path, dst: &User, dst_path: &U8Path) -> Result<()> {
     let mut src = src.open(src_path, OpenFlags::READ).await?;
@@ -57,22 +57,12 @@ impl<'a> CopyContext<'a> {
         src_path: &U8Path,
         dst_path: &U8Path,
         src_attr: FileAttributes,
-        dst_attr: dv_api::Result<FileAttributes>,
+        dst_attr: Option<FileAttributes>,
     ) -> Result<bool> {
         trace!(
             "check_copy_file {}:{} -> {}:{}",
             self.src_uid, src_path, self.dst_uid, dst_path
         );
-        let dst_attr = match dst_attr {
-            Err(e) if !e.is_not_found() => {
-                warn!(
-                    "{}:{} -> {}:{} failed: {}",
-                    self.dst_uid, dst_path, self.src_uid, src_path, e
-                );
-                Err(e)?
-            }
-            a => a.ok(),
-        };
         let dst_mtime = dst_attr.as_ref().and_then(|a| a.mtime);
         let cache = self.ctx.cache.get(self.dst_uid, dst_path.as_str()).await?;
         let overwrite = src_attr
@@ -183,7 +173,7 @@ impl<'a> CopyContext<'a> {
         for Metadata { path, attr } in meta {
             src_file.push(&path);
             dst_file.push(&path);
-            let (full_dst_file, dst_attr) = self.dst.check_file(&dst_file).await;
+            let (full_dst_file, dst_attr) = self.dst.check_file(&dst_file).await?;
             let res = self
                 .check_copy_file(
                     src_file.as_str().into(),
@@ -223,7 +213,7 @@ impl<'a> CopyContext<'a> {
             } else {
                 Cow::Borrowed(dst_path)
             };
-            let (dst_path2, fa) = self.dst.check_file(dst_path2.as_ref().into()).await;
+            let (dst_path2, fa) = self.dst.check_file(dst_path2.as_ref().into()).await?;
             match info {
                 CheckInfo::Dir(DirInfo { path, files }) => {
                     self.check_copy_dir(path, dst_path2, files).await

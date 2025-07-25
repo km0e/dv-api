@@ -20,7 +20,6 @@ os2 = { path = "../os2", features = ["serde"] }
 home.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-resplus.workspace = true
 async-trait.workspace = true
 
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -51,3 +50,5 @@ assert_fs = "1.1"
 [features]
 default = []
 rune = ["os2/rune"]
+full = ["default"]
+fast = []

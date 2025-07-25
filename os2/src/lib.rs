@@ -78,6 +78,18 @@ impl From<String> for Os {
     }
 }
 
+pub fn detect() -> Os {
+    if cfg!(target_os = "linux") {
+        Os::Linux(LinuxOs::detect())
+    } else if cfg!(target_os = "windows") {
+        Os::Windows
+    } else if cfg!(target_os = "macos") {
+        Os::Mac
+    } else {
+        Os::Unknown
+    }
+}
+
 #[test]
 fn test_os_convert() {
     assert_eq!(Os::Unknown.as_ref(), "unknown");

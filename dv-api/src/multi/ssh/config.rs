@@ -1,7 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
 use os2::Os;
-use resplus::{attach, flog};
 use russh::client::{self, AuthResult, Handle};
 use tokio::io::AsyncReadExt;
 use tracing::warn;
@@ -11,28 +10,28 @@ use crate::whatever;
 use super::{Client, SSHSession, dev::*};
 
 pub async fn create(host: String, info: &mut Config) -> Result<BoxedUser> {
-    let (h, user) = attach!(connect(&host, info.get("passwd").cloned()), 0).await?;
+    let (h, user) = connect(&host, info.get("passwd").cloned()).await?;
     if info.get("user").is_none() {
         info.set("user", user.clone());
     }
     let os = info.get("os").map(|s| s.as_str()).unwrap_or("");
     let mut os = os.into();
     let env = detect2(&h, &mut os).await?;
-    let command_util = (&os).into();
-    let channel = flog!(h.channel_open_session()).await?;
-    flog!(channel.request_subsystem(true, "sftp")).await?;
+    let channel = h.channel_open_session().await?;
+    channel.request_subsystem(true, "sftp").await?;
     let sftp = russh_sftp::client::SftpSession::new(channel.into_stream()).await?;
+
     let home = match os {
-        Os::Linux(_) | Os::Mac | Os::Unix => env.get("HOME").cloned(),
-        Os::Windows => env.get("HOMEPATH").cloned(),
+        Os::Linux(_) | Os::Mac | Os::Unix => env.get("HOME"),
+        Os::Windows => env.get("HOMEPATH"),
         _ => None,
-    };
+    }
+    .cloned();
+    info.variables.extend(env);
     let sys = SSHSession {
         session: h,
         sftp,
-        env,
         home,
-        command_util,
     };
     let u: BoxedUser = sys.into();
     info.is_system.get_or_insert_default();
@@ -40,16 +39,16 @@ pub async fn create(host: String, info: &mut Config) -> Result<BoxedUser> {
 }
 
 async fn connect(host: &str, passwd: Option<String>) -> Result<(Handle<Client>, String)> {
-    let host_cfg = flog!(russh_config::parse_home(&host), ..)?; //with host
+    let host_cfg = russh_config::parse_home(host)?; //with host
 
-    let mut session = flog!(client::connect(
+    let mut session = client::connect(
         Arc::new(client::Config::default()),
         (host_cfg.host_name.clone(), host_cfg.port),
-        Client {}
-    ))
+        Client {},
+    )
     .await?;
 
-    let mut res = flog!(session.authenticate_none(&host_cfg.user)).await?;
+    let mut res = session.authenticate_none(&host_cfg.user).await?;
     let AuthResult::Failure {
         mut remaining_methods,
         ..
@@ -65,11 +64,9 @@ async fn connect(host: &str, passwd: Option<String>) -> Result<(Handle<Client>, 
     ) {
         let kp = keys::load_secret_key(&path, None)?;
         let private_key = keys::PrivateKeyWithHashAlg::new(Arc::new(kp), None);
-        res = flog!(
-            session.authenticate_publickey(&host_cfg.user, private_key,),
-            0
-        )
-        .await?;
+        res = session
+            .authenticate_publickey(&host_cfg.user, private_key)
+            .await?;
         let AuthResult::Failure {
             remaining_methods: s,
             ..
@@ -81,7 +78,9 @@ async fn connect(host: &str, passwd: Option<String>) -> Result<(Handle<Client>, 
         remaining_methods = s;
     }
     if let (Some(passwd), true) = (passwd, remaining_methods.contains(&MethodKind::Password)) {
-        res = flog!(session.authenticate_password(&host_cfg.user, passwd), 0).await?;
+        res = session
+            .authenticate_password(&host_cfg.user, passwd)
+            .await?;
         if res.success() {
             return Ok((session, host_cfg.user));
         }
@@ -152,7 +151,7 @@ async fn detect(h: &Handle<Client>, os: &mut Os) -> Result<HashMap<String, Strin
         Ok(map)
     }
 
-    let env = flog!(extract_all(h, "env")).await?;
+    let env = extract_all(h, "env").await?;
 
     let [os_d] = extract_special(
         h,

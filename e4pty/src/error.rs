@@ -1,5 +1,3 @@
-use resplus::define;
-
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("io error: {0}")]
@@ -14,10 +12,4 @@ pub enum Error {
     Unknown(String),
 }
 
-#[cfg(not(windows))]
-define!(std::io::Error, rustix_openpty::rustix::io::Errno, Error);
-
-#[cfg(windows)]
-define!(std::io::Error, windows::core::Error, Error);
-
-pub type Result<T, E = ErrorChain> = std::result::Result<T, E>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
