@@ -4,6 +4,8 @@ version = "0.1.0"
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
+description = "os2 - a library for working with operating system features in Rust"
+license = "MIT"
 
 [features]
 default = []
@@ -13,5 +15,4 @@ serde = ["dep:serde"]
 [dependencies]
 rune = { version = "0.14", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
-
 strum = { version = "0.27", features = ["derive"] }

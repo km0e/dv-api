@@ -42,19 +42,19 @@ impl This {
 #[async_trait]
 impl UserImpl for This {
     async fn exist(&self, path: &U8Path) -> Result<bool> {
-        let path2 = self.canonicalize(path.as_str())?;
-        Ok(std::fs::exists(&path2)?)
+        let path = self.canonicalize(path.as_str())?;
+        Ok(std::fs::exists(&path)?)
     }
     async fn file_attributes(&self, path: &U8Path) -> Result<(U8PathBuf, Option<FileAttributes>)> {
-        let path2 = self
+        let path = self
             .canonicalize(path.as_str())?
             .to_string_lossy()
             .to_string();
-        match std::fs::metadata(&path2).map(|meta| (&meta).into()) {
-            Ok(attr) => Ok((path2.into(), Some(attr))),
+        match std::fs::metadata(&path).map(|meta| (&meta).into()) {
+            Ok(attr) => Ok((path.into(), Some(attr))),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                debug!("{} not found", path2);
-                Ok((path2.into(), None))
+                debug!("{} not found", path);
+                Ok((path.into(), None))
             }
             Err(e) => Err(e.into()),
         }
@@ -107,8 +107,13 @@ impl UserImpl for This {
         let pty = openpty_local(win_size, command)?;
         Ok(pty)
     }
-    async fn open(&self, path: &str, flags: OpenFlags, attr: FileAttributes) -> Result<BoxedFile> {
-        let path2 = Path::new(path);
+    async fn open(
+        &self,
+        path: &U8Path,
+        flags: OpenFlags,
+        attr: FileAttributes,
+    ) -> Result<BoxedFile> {
+        let path = Path::new(path.as_str());
         let mut open_options = tokio::fs::OpenOptions::from(flags);
 
         #[cfg(unix)]
@@ -134,10 +139,10 @@ impl UserImpl for This {
         }
 
         let file = loop {
-            match open_options.open(&path2).await {
+            match open_options.open(&path).await {
                 Ok(file) => break Ok(file),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    let parent = path2.parent().unwrap();
+                    let parent = path.parent().unwrap();
                     debug!("try to create dir {}", parent.display());
                     tokio::fs::create_dir_all(parent).await?;
                 }

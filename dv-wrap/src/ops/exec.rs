@@ -17,7 +17,7 @@ pub async fn exec(
 
         let ec = ctx.interactor.ask(pp).await?;
         if ec != 0 {
-            let msg = format!("unexpect exit code: {ec}");
+            let msg = format!("unexpected exit code: {ec}");
             ctx.interactor.log(msg.clone()).await;
             whatever!("exec error: {}", msg);
         }

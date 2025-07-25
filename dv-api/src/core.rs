@@ -15,7 +15,12 @@ pub trait UserImpl {
     async fn file_attributes(&self, path: &U8Path) -> Result<(U8PathBuf, Option<FileAttributes>)>;
     async fn exist(&self, path: &U8Path) -> Result<bool>;
     async fn glob_file_meta(&self, path: &U8Path) -> Result<Vec<Metadata>>;
-    async fn open(&self, path: &str, flags: OpenFlags, attr: FileAttributes) -> Result<BoxedFile>;
+    async fn open(
+        &self,
+        path: &U8Path,
+        flags: OpenFlags,
+        attr: FileAttributes,
+    ) -> Result<BoxedFile>;
     async fn exec(&self, command: Script<'_, '_>) -> Result<Output>;
     async fn pty(&self, command: Script<'_, '_>, win_size: WindowSize) -> Result<BoxedPty>;
 }

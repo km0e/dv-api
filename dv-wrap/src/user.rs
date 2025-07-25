@@ -131,6 +131,6 @@ impl User {
         attr: FileAttributes,
     ) -> Result<BoxedFile> {
         let path = self.normalize(path)?;
-        Ok(self.inner.open(path.as_str(), flags, attr).await?)
+        Ok(self.inner.open(path.as_ref(), flags, attr).await?)
     }
 }

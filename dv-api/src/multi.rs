@@ -33,7 +33,6 @@ impl Config {
 }
 
 mod local;
-
 pub use local::create as create_local;
 
 mod ssh;

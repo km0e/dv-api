@@ -1,3 +1,3 @@
 ## dv-api
 
-dv-api offers a simple API for executing commands on different devices.
+dv-api offers a simple API set for operating between different devices.

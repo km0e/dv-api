@@ -35,18 +35,20 @@ pub(crate) struct SSHSession {
 }
 
 impl SSHSession {
-    fn canonicalize<'a, 'b: 'a>(&'b self, path: &'a str) -> Result<Cow<'a, str>> {
-        Ok(if let Some(path) = path.strip_prefix("~") {
+    fn canonicalize<'a, 'b: 'a>(&'b self, path: &'a U8Path) -> Result<Cow<'a, str>> {
+        Ok(if let Some(sub) = path.as_str().strip_prefix("~") {
             let Some(home) = self.home.as_deref() else {
                 whatever!("unknown home")
             };
-            if path.starts_with("/") {
-                format!("{home}{path}").into()
-            } else {
+            if sub.starts_with("/") {
+                format!("{home}{sub}").into()
+            } else if sub.is_empty() {
                 home.into()
+            } else {
+                path.as_str().into()
             }
         } else {
-            path.into()
+            path.as_str().into()
         })
     }
     async fn prepare_command(&self, command: Script<'_, '_>) -> Result<String> {
@@ -118,12 +120,10 @@ impl SSHSession {
 #[async_trait]
 impl UserImpl for SSHSession {
     async fn exist(&self, path: &U8Path) -> Result<bool> {
-        let path2 = self.canonicalize(path.as_str())?;
-        let path = path2.as_ref();
-        Ok(self.sftp.try_exists(path).await?)
+        Ok(self.sftp.try_exists(self.canonicalize(path)?).await?)
     }
     async fn file_attributes(&self, path: &U8Path) -> Result<(U8PathBuf, Option<FileAttributes>)> {
-        let path = self.canonicalize(path.as_str())?.to_string();
+        let path = self.canonicalize(path)?.to_string();
         match self.sftp.metadata(&path).await {
             Ok(attr) => Ok((path.into(), Some(attr))),
             Err(russh_sftp::client::error::Error::Status(russh_sftp::protocol::Status {
@@ -199,7 +199,12 @@ impl UserImpl for SSHSession {
         channel.exec(true, cmd).await?;
         Ok(channel.into_pty())
     }
-    async fn open(&self, path: &str, flags: OpenFlags, attr: FileAttributes) -> Result<BoxedFile> {
+    async fn open(
+        &self,
+        path: &U8Path,
+        flags: OpenFlags,
+        attr: FileAttributes,
+    ) -> Result<BoxedFile> {
         let path2 = self.canonicalize(path)?;
         let path = path2.as_ref();
 

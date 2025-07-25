@@ -1,6 +1,4 @@
-use strum::EnumIs;
-
-#[derive(thiserror::Error, Debug, EnumIs)]
+#[derive(thiserror::Error, Debug, strum::EnumIs)]
 pub enum Error {
     #[error("ssh config error: {0}")]
     SSHConfig(#[from] russh_config::Error),
@@ -50,16 +48,5 @@ macro_rules! whatever {
         Err($crate::error::Error::unknown($crate::error::Error::Unknown(format!($($t)*))))?
     };
 }
-
-#[macro_export]
-macro_rules! ensure(
-    ($opt:expr, $($t:tt)*) => {
-        if let Some(v) = $opt {
-            v
-        } else {
-            whatever!($($t)*)
-        }
-    }
-);
 
 pub use whatever;

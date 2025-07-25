@@ -229,9 +229,11 @@ fn noblock_stdin() -> impl tokio::io::AsyncRead {
 }
 
 #[cfg(not(windows))]
-fn noblock_stdin() -> impl AsyncRead {
+fn noblock_stdin() -> impl tokio::io::AsyncRead {
+    use std::io::Read;
+
     struct AsyncStdin;
-    impl AsyncRead for AsyncStdin {
+    impl tokio::io::AsyncRead for AsyncStdin {
         fn poll_read(
             self: std::pin::Pin<&mut Self>,
             _: &mut std::task::Context<'_>,

@@ -19,7 +19,7 @@ impl SqliteCache {
                 device TEXT NOT NULL,
                 path TEXT NOT NULL,
                 version INTEGER NOT NULL,
-                lastest INTEGER NOT NULL,
+                latest INTEGER NOT NULL,
                 PRIMARY KEY (device, path)
             )",
             [],
@@ -37,7 +37,7 @@ impl SqliteCache {
                 device TEXT NOT NULL,
                 path TEXT NOT NULL,
                 version INTEGER NOT NULL,
-                lastest INTEGER NOT NULL,
+                latest INTEGER NOT NULL,
                 PRIMARY KEY (device, path)
             )",
             [],
@@ -53,7 +53,7 @@ impl SqliteCache {
 impl super::Cache for SqliteCache {
     async fn get(&self, uid: &str, path: &str) -> Result<Option<(i64, i64)>> {
         let row = self.conn.lock().await.query_row(
-            "SELECT version, lastest FROM cache WHERE device = ? AND path = ?",
+            "SELECT version, latest FROM cache WHERE device = ? AND path = ?",
             [uid, path],
             |row| Ok((row.get(0)?, row.get(1)?)),
         );
@@ -69,7 +69,7 @@ impl super::Cache for SqliteCache {
             .lock()
             .await
             .execute(
-                "INSERT OR REPLACE INTO cache (device, path, version, lastest) VALUES (?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO cache (device, path, version, latest) VALUES (?, ?, ?, ?)",
                 [uid, path, &version.to_string(), &latest.to_string()],
             )
             .map(|_| ())
