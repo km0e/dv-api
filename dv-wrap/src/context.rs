@@ -1,11 +1,11 @@
 use super::dev::*;
-use crate::{cache::SqliteCache, interactor::TermInteractor};
+use crate::{cache::MultiCache, interactor::TermInteractor};
 use std::collections::HashMap;
 
 #[derive(Clone, Copy)]
 pub struct Context<'a> {
     pub dry_run: bool,
-    pub cache: &'a SqliteCache,
+    pub cache: &'a MultiCache,
     pub interactor: &'a TermInteractor,
     users: &'a HashMap<String, User>,
 }
@@ -22,7 +22,7 @@ use dv_api::whatever;
 impl<'s> Context<'s> {
     pub fn new<'a>(
         dry_run: bool,
-        cache: &'a SqliteCache,
+        cache: &'a MultiCache,
         interactor: &'a TermInteractor,
         users: &'a HashMap<String, User>,
     ) -> Context<'a> {

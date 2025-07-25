@@ -1,4 +1,5 @@
 mod cache;
+pub use cache::MultiCache;
 pub use cache::SqliteCache;
 mod context;
 pub use context::Context;
@@ -19,8 +20,6 @@ pub mod error {
     pub enum Error {
         #[error("dv-api error: {0}")]
         DvApi(#[from] dv_api::error::Error),
-        #[error("sqlite error: {0}")]
-        Sqlite(#[from] rusqlite::Error),
         #[error("io error: {0}")]
         IO(#[from] std::io::Error),
         #[error("toml error: {0}")]

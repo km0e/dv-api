@@ -1,90 +1,49 @@
-use std::path::Path;
+use crate::error::Result;
 
-use rusqlite::Result;
-use tokio::sync::Mutex;
-use tracing::info;
+mod sqlite;
+pub use sqlite::SqliteCache;
 
-#[derive(Debug)]
-pub struct SqliteCache {
-    conn: Mutex<rusqlite::Connection>,
+#[async_trait::async_trait]
+pub trait Cache {
+    async fn get(&self, uid: &str, path: &str) -> Result<Option<(i64, i64)>>;
+    async fn set(&self, uid: &str, path: &str, version: i64, latest: i64) -> Result<()>;
+    async fn del(&self, uid: &str, path: &str) -> Result<()>;
 }
 
-impl SqliteCache {
-    pub fn new(db_path: impl AsRef<Path>) -> Self {
-        let db_path = db_path.as_ref();
-        info!("use sqlite path {}", db_path.display());
-        let conn = rusqlite::Connection::open(db_path).expect("open sqlite connection");
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS cache (
-                device TEXT NOT NULL,
-                path TEXT NOT NULL,
-                version INTEGER NOT NULL,
-                lastest INTEGER NOT NULL,
-                PRIMARY KEY (device, path)
-            )",
-            [],
-        )
-        .expect("create initial table");
-        Self {
-            conn: Mutex::new(conn),
-        }
-    }
-    #[cfg(test)]
-    pub fn memory() -> Self {
-        let conn = rusqlite::Connection::open_in_memory().expect("open sqlite connection");
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS cache (
-                device TEXT NOT NULL,
-                path TEXT NOT NULL,
-                version INTEGER NOT NULL,
-                lastest INTEGER NOT NULL,
-                PRIMARY KEY (device, path)
-            )",
-            [],
-        )
-        .expect("create initial table");
-        Self {
-            conn: Mutex::new(conn),
-        }
-    }
+#[derive(Default)]
+pub struct MultiCache {
+    caches: Vec<Box<dyn Cache + Sync>>,
 }
 
-impl SqliteCache {
+impl MultiCache {
+    pub fn add_cache<C: Cache + Sync + 'static>(&mut self, cache: C) {
+        self.caches.push(Box::new(cache));
+    }
+    pub fn add_sqlite(&mut self, db_path: impl AsRef<std::path::Path>) {
+        self.caches.push(Box::new(SqliteCache::new(db_path)));
+    }
     pub async fn get(&self, uid: &str, path: &str) -> Result<Option<(i64, i64)>> {
-        let row = self.conn.lock().await.query_row(
-            "SELECT version, lastest FROM cache WHERE device = ? AND path = ?",
-            [uid, path],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        );
-        match row {
-            Ok(fs) => Ok(Some(fs)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e),
+        for cache in &self.caches {
+            if let Ok(result) = cache.get(uid, path).await {
+                if result.is_some() {
+                    return Ok(result);
+                }
+            }
         }
+        Ok(None)
     }
+
     pub async fn set(&self, uid: &str, path: &str, version: i64, latest: i64) -> Result<()> {
-        info!("cache set: {} {} {} {}", uid, path, version, latest);
-        self.conn
-            .lock()
-            .await
-            .execute(
-                "INSERT OR REPLACE INTO cache (device, path, version, lastest) VALUES (?, ?, ?, ?)",
-                [uid, path, &version.to_string(), &latest.to_string()],
-            )
-            .map(|_| ())
-    }
-    pub async fn del(&self, uid: &str, path: &str) -> Result<()> {
-        info!("cache del: {} {}", uid, path);
-        let conn = self.conn.lock().await;
-        if !path.is_empty() {
-            conn.execute(
-                "DELETE FROM cache WHERE device = ? AND path = ?",
-                [uid, path],
-            )
-            .map(|_| ())
-        } else {
-            conn.execute("DELETE FROM cache WHERE device = ?", [uid])
-                .map(|_| ())
+        for cache in &self.caches {
+            cache.set(uid, path, version, latest).await?;
         }
+        Ok(())
+    }
+
+    pub async fn del(&self, uid: &str, path: &str) -> Result<()> {
+        for cache in &self.caches {
+            cache.del(uid, path).await?;
+        }
+        Ok(())
     }
 }

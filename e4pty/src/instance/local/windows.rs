@@ -124,6 +124,9 @@ impl PtyWriter for PtyWriterImpl {
         )?;
         Ok(())
     }
+    async fn eof(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub struct PtyCtlImpl {

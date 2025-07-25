@@ -63,60 +63,65 @@ impl<'a> CopyContext<'a> {
             "check_copy_file {}:{} -> {}:{}",
             self.src_uid, src_path, self.dst_uid, dst_path
         );
-        let dst_mtime = dst_attr.as_ref().and_then(|a| a.mtime);
-        let cache = self.ctx.cache.get(self.dst_uid, dst_path.as_str()).await?;
-        let overwrite = src_attr
-            .mtime
-            .is_some_and(|mt| cache.is_none_or(|(ver, _)| ver != mt as i64) || dst_mtime.is_none());
-        let update = dst_mtime.is_some_and(|mt| {
-            cache.is_none_or(|(_, old)| old != mt as i64) || src_attr.mtime.is_none()
-        });
+
         debug!(
-            "{}:{}({:?}) - {}:{}({:?}) - {:?}",
+            "{}:{}({:?}) - {}:{}({:?})",
             self.src_uid,
             src_path,
             src_attr.mtime,
             self.dst_uid,
             dst_path,
             dst_attr.as_ref().map(|a| a.mtime),
-            cache
         );
-        let res = 'check_opt: {
-            if !overwrite && !update {
-                break 'check_opt None;
-            }
-            for opt in self.opt.chars() {
-                match opt {
-                    'y' if overwrite => break 'check_opt Some(false),
-                    'u' if update => break 'check_opt Some(true),
-                    'n' => break 'check_opt None,
-                    _ => continue,
+        let dst_mtime = dst_attr.as_ref().and_then(|a| a.mtime);
+
+        let res = if dst_attr.is_none() {
+            Some(false)
+        } else {
+            'check_opt: {
+                let cache = self.ctx.cache.get(self.dst_uid, dst_path.as_str()).await?;
+                let overwrite = src_attr.mtime.is_some_and(|mt| {
+                    cache.is_none_or(|(ver, _)| ver != mt as i64) || dst_mtime.is_none()
+                });
+                let update = dst_mtime.is_some_and(|mt| {
+                    cache.is_none_or(|(_, old)| old != mt as i64) || src_attr.mtime.is_none()
+                });
+                if !overwrite && !update {
+                    break 'check_opt None;
                 }
-            }
-            let mut hint = String::new();
-            let mut opts = Vec::new();
-            if overwrite {
-                hint.push_str(self.src_uid);
-                hint.push(':');
-                hint.push_str(src_path.as_str());
-                hint.push_str(" is newer, ");
-                opts.push("y/overwrite");
-            }
-            if update {
-                hint.push_str(self.dst_uid);
-                hint.push(':');
-                hint.push_str(dst_path.as_str());
-                hint.push_str(" is newer, ");
-                opts.push("u/update");
-            }
-            hint.push_str("do what?");
-            opts.push("n/skip");
-            let sel = self.interactor.confirm(hint, &opts).await?;
-            match opts[sel].chars().nth(0) {
-                Some('y') => Some(false),
-                Some('u') => Some(true),
-                Some('n') => None,
-                _ => unreachable!(),
+                for opt in self.opt.chars() {
+                    match opt {
+                        'y' if overwrite => break 'check_opt Some(false),
+                        'u' if update => break 'check_opt Some(true),
+                        'n' => break 'check_opt None,
+                        _ => continue,
+                    }
+                }
+                let mut hint = String::new();
+                let mut opts = Vec::new();
+                if overwrite {
+                    hint.push_str(self.src_uid);
+                    hint.push(':');
+                    hint.push_str(src_path.as_str());
+                    hint.push_str(" is newer, ");
+                    opts.push("y/overwrite");
+                }
+                if update {
+                    hint.push_str(self.dst_uid);
+                    hint.push(':');
+                    hint.push_str(dst_path.as_str());
+                    hint.push_str(" is newer, ");
+                    opts.push("u/update");
+                }
+                hint.push_str("do what?");
+                opts.push("n/skip");
+                let sel = self.interactor.confirm(hint, &opts).await?;
+                match opts[sel].chars().nth(0) {
+                    Some('y') => Some(false),
+                    Some('u') => Some(true),
+                    Some('n') => None,
+                    _ => unreachable!(),
+                }
             }
         };
 
@@ -146,7 +151,7 @@ impl<'a> CopyContext<'a> {
                 .set(self.dst_uid, dst_path.as_str(), src_ts, dst_ts)
                 .await?;
         }
-        let update = res.is_some_and(|do_| !do_);
+        let update = res.is_some_and(|do_| do_);
         action!(
             self,
             res.is_some(),
@@ -230,7 +235,12 @@ impl<'a> CopyContext<'a> {
 mod tests {
     use std::{collections::HashMap, path::Path, time::Duration};
 
-    use crate::{cache::SqliteCache, dev::User, dv::tests::TestDv, interactor::TermInteractor};
+    use crate::{
+        cache::{MultiCache, SqliteCache},
+        dev::User,
+        dv::tests::TestDv,
+        interactor::TermInteractor,
+    };
 
     use assert_fs::{TempDir, fixture::ChildPath, prelude::*};
     use dv_api::multi::Config;
@@ -244,12 +254,13 @@ mod tests {
     /// - `dst`: list of (name, content) pairs to create in the destination directory
     async fn tenv(src: &[(&str, &str)], dst: &[(&str, &str)]) -> (TestDv, TempDir) {
         let int = TermInteractor::new().unwrap();
-        let cache = SqliteCache::memory();
+        let mut cache = MultiCache::default();
+        cache.add_cache(SqliteCache::memory());
         let dir = TempDir::new().unwrap();
         let mut cfg = Config::default();
         cfg.set("mount", dir.to_string_lossy());
         let mut users = HashMap::new();
-        users.insert("this".to_string(), User::new(cfg).await.unwrap());
+        users.insert("this".to_string(), User::local(cfg).await.unwrap());
         let src_dir = dir.child("src");
         for (name, content) in src {
             let f = src_dir.child(name);
@@ -275,7 +286,7 @@ mod tests {
             dir.child(name).assert(*content);
         }
     }
-    async fn cache_assert(cache: &SqliteCache, src: &Path, dst: &Path) {
+    async fn cache_assert(cache: &MultiCache, src: &Path, dst: &Path) {
         let src_meta = src.metadata().unwrap();
         let dst_meta = dst.metadata().unwrap();
         let mtime = {
@@ -304,7 +315,7 @@ mod tests {
             dst.display()
         );
     }
-    async fn cache_assert2(cache: &SqliteCache, src: ChildPath, dst: ChildPath, subpaths: &[&str]) {
+    async fn cache_assert2(cache: &MultiCache, src: ChildPath, dst: ChildPath, subpaths: &[&str]) {
         for subpath in subpaths {
             cache_assert(cache, src.child(subpath).path(), dst.child(subpath).path()).await;
         }

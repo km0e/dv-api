@@ -63,9 +63,9 @@ impl SSHSession {
             Script::Script { executor, input } => {
                 let mut retry = 5;
                 let mut name = String::with_capacity(4 + 6);
+                name.push_str(".tmp");
                 loop {
                     //TODO:extract to a function?
-                    name.push_str(".tmp");
                     for c in std::iter::repeat_with(fastrand::alphanumeric).take(6) {
                         name.push(c);
                     }
@@ -87,7 +87,7 @@ impl SSHSession {
                         res?;
                     }
                     retry -= 1;
-                    name.clear();
+                    name.truncate(4);
                 }
                 let cmd = format!("{executor} {name}");
                 cmd

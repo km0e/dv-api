@@ -20,13 +20,19 @@ pub struct User {
 }
 
 impl User {
-    pub async fn new(mut cfg: Config) -> Result<Self> {
-        let inner = if let Some(host) = cfg.remove("host") {
-            create_ssh(host, &mut cfg).await
-        } else {
-            create_local(&mut cfg).await
-        }?;
-        debug!("after create user: {:?}", cfg);
+    pub async fn local(mut cfg: Config) -> Result<Self> {
+        let inner = create_local(&mut cfg).await?;
+        Ok(Self {
+            is_system: cfg.is_system.expect("is_system"),
+            vars: cfg.variables,
+            inner,
+        })
+    }
+    pub async fn ssh(mut cfg: Config) -> Result<Self> {
+        let Some(host) = cfg.remove("host") else {
+            whatever!("ssh user must have host")
+        };
+        let inner = create_ssh(host, &mut cfg).await?;
         Ok(Self {
             is_system: cfg.is_system.expect("is_system"),
             vars: cfg.variables,
@@ -35,22 +41,22 @@ impl User {
     }
     fn normalize<'a>(&self, path: impl Into<&'a U8Path>) -> Result<Cow<'a, U8Path>> {
         let path: &'a U8Path = path.into();
-        if path.has_root() {
-            Ok(Cow::Borrowed(path))
-        } else {
-            let Some(path) = var_replace(path.as_str(), &self.vars) else {
-                whatever!("var_replace failed: {}", path)
-            };
-            Ok(match (path.starts_with("~"), self.vars.get("mount")) {
-                (false, Some(mount)) => {
-                    U8PathBuf::from(format!("{}/{}", mount.as_str(), path.as_ref())).into()
-                }
-                _ => match path {
-                    Cow::Borrowed(path) => U8Path::new(path).into(),
-                    Cow::Owned(path) => U8PathBuf::from(path).into(),
-                },
-            })
-        }
+        let Some(path) = var_replace(path.as_str(), &self.vars) else {
+            whatever!("var_replace failed: {}", path)
+        };
+        let path: Cow<U8Path> = match path {
+            Cow::Borrowed(path) => U8Path::new(path).into(),
+            Cow::Owned(path) => U8PathBuf::from(path).into(),
+        };
+        Ok(
+            if !path.has_root()
+                && let (false, Some(mount)) = (path.starts_with("~"), self.vars.get("mount"))
+            {
+                U8PathBuf::from(format!("{}/{}", mount.as_str(), path.as_ref())).into()
+            } else {
+                path
+            },
+        )
     }
     pub fn os(&self) -> Os {
         self.vars["os"].as_str().into()

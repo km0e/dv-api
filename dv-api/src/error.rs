@@ -13,7 +13,7 @@ pub enum Error {
     #[error("io error: {0}")]
     IO(#[from] std::io::Error),
     #[error("pty error: {0}")]
-    Pty(#[from] e4pty::ErrorChain),
+    Pty(#[from] e4pty::Error),
     #[error("unknown error: {0}")]
     Unknown(String),
 }

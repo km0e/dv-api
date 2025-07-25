@@ -1,13 +1,13 @@
 #[cfg(test)]
 pub mod tests {
 
-    use crate::{cache::SqliteCache, context::Context, dev::User, interactor::TermInteractor};
+    use crate::{cache::MultiCache, context::Context, dev::User, interactor::TermInteractor};
     use std::collections::HashMap;
 
     pub struct TestDv {
         pub dry_run: bool,
         pub users: HashMap<String, User>,
-        pub cache: SqliteCache,
+        pub cache: MultiCache,
         pub interactor: TermInteractor,
     }
     impl TestDv {

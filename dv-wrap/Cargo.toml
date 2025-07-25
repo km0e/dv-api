@@ -23,7 +23,6 @@ tracing.workspace = true
 async-trait.workspace = true
 
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tokio-fd = "0.3"
 rustix = { version = "1.0", features = ["pty", "fs"] }
 thiserror = "2.0"
 rusqlite = { version = "0.37", features = ["bundled"] }

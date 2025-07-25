@@ -44,3 +44,17 @@ impl Linux {
         Linux::Unknown
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_str() {
+        assert_eq!(Linux::from_str("manjaro").unwrap(), Linux::Manjaro);
+        assert_eq!(Linux::from_str("alpine").unwrap(), Linux::Alpine);
+        assert_eq!(Linux::from_str("debian").unwrap(), Linux::Debian);
+        assert_eq!(Linux::from_str("ubuntu").unwrap(), Linux::Ubuntu);
+        assert_eq!(Linux::from_str("linux").unwrap(), Linux::Unknown);
+    }
+}

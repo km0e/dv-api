@@ -96,4 +96,5 @@ fn test_os_convert() {
     assert_eq!(Os::Linux(LinuxOs::Unknown).as_ref(), "linux");
     assert_eq!(Os::from("linux"), Os::Linux(LinuxOs::Unknown));
     assert_eq!(Os::from("manjaro"), Os::Linux(LinuxOs::Manjaro));
+    assert_eq!(Os::from("unknown"), Os::Unknown);
 }
