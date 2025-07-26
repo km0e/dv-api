@@ -22,7 +22,7 @@ pub async fn create(host: String, info: &mut Config) -> Result<BoxedUser> {
     let sftp = russh_sftp::client::SftpSession::new(channel.into_stream()).await?;
 
     let home = match os {
-        Os::Linux(_) | Os::Mac | Os::Unix => env.get("HOME"),
+        Os::Linux(_) | Os::MacOs | Os::Unix => env.get("HOME"),
         Os::Windows => env.get("HOMEPATH"),
         _ => None,
     }

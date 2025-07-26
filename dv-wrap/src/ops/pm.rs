@@ -38,7 +38,7 @@ impl Pm {
                 LinuxOs::Debian => platform::debian::detect(u).await,
                 LinuxOs::Alpine => platform::alpine::detect(u).await,
                 LinuxOs::Ubuntu => platform::ubuntu::detect(u).await,
-                LinuxOs::Unknown => whatever!("Unknown LinuxOs"),
+                _ => whatever!("Unknown LinuxOs"),
             },
             Os::Windows => platform::windows::detect(u).await,
             _ => Ok(Self::Unknown),
