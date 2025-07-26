@@ -10,7 +10,7 @@ pub use copy::CopyContext;
 mod exec;
 pub use exec::exec;
 mod pm;
-pub use pm::{Package, Pm};
+pub use pm::Pm;
 mod once;
 pub use once::Once;
 mod refresh;

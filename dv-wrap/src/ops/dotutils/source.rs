@@ -16,7 +16,7 @@ pub trait Source {
 pub trait SourceAction {
     async fn sync(
         &self,
-        ctx: Context<'_>,
+        ctx: &Context,
         opt: &DotConfig,
         dst: &str,
         schema: &AppSchema,

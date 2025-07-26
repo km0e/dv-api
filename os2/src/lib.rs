@@ -1,7 +1,9 @@
-mod linux;
-use std::str::FromStr;
+#![doc = include_str!("../README.md")]
 
+mod linux;
 pub use linux::Linux as LinuxOs;
+
+use std::str::FromStr;
 use strum::{AsRefStr, Display, EnumIs};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -17,7 +19,7 @@ pub enum Os {
     #[strum(serialize = "windows")]
     Windows,
     #[strum(serialize = "macos")]
-    Mac,
+    MacOs,
     #[strum(serialize = "unix")]
     Unix,
 }
@@ -26,6 +28,16 @@ impl Os {
     pub fn linux() -> Self {
         Os::Linux(LinuxOs::default())
     }
+    /// Confirms if the current operating system is compatible with another.
+    /// # Examples
+    /// ```
+    /// use os2::Os;
+    /// let os = Os::Linux(os2::LinuxOs::Ubuntu);
+    /// assert!(os.compatible(&Os::Linux(os2::LinuxOs::Ubuntu)));
+    /// assert!(!os.compatible(&Os::Linux(os2::LinuxOs::Arch)));
+    /// assert!(os.compatible(&Os::Linux(os2::LinuxOs::Unknown)));
+    /// assert!(os.compatible(&Os::Unix));
+    /// ```
     pub fn compatible(&self, other: &Os) -> bool {
         match other {
             Os::Unknown => true,
@@ -35,17 +47,28 @@ impl Os {
                 _ => false,
             },
             Os::Windows => self == &Os::Windows,
-            Os::Mac => self == &Os::Mac,
-            Os::Unix => matches!(self, Os::Linux(_) | Os::Unix | Os::Mac),
+            Os::MacOs => self == &Os::MacOs,
+            Os::Unix => matches!(self, Os::Linux(_) | Os::Unix | Os::MacOs),
         }
     }
+    /// Returns the next compatible operating system.
+    /// # Examples
+    /// ```
+    /// use os2::Os;
+    /// let os = Os::MacOs;
+    /// assert_eq!(os.next_compatible(), Some(Os::Unix));
+    /// let os = Os::Linux(os2::LinuxOs::Ubuntu);
+    /// assert_eq!(os.next_compatible(), Some(Os::Linux(os2::LinuxOs::Unknown)));
+    /// let os = Os::Unknown;
+    /// assert_eq!(os.next_compatible(), None);
+    /// ```
     pub fn next_compatible(&self) -> Option<Os> {
         match self {
             Os::Unknown => None,
             Os::Linux(linux) if linux.is_unknown() => Some(Os::Unix),
             Os::Linux(_) => Some(Os::linux()),
             Os::Windows => Some(Os::Unknown), //NOTE:Need to be confirmed
-            Os::Mac => Some(Os::Unix),        //NOTE:Need to be confirmed
+            Os::MacOs => Some(Os::Unix),      //NOTE:Need to be confirmed
             Os::Unix => Some(Os::Unknown),    //NOTE:Need to be confirmed
         }
     }
@@ -58,7 +81,7 @@ impl From<&str> for Os {
         } else {
             match s {
                 "windows" => Os::Windows,
-                "macos" => Os::Mac,
+                "macos" => Os::MacOs,
                 "unix" => Os::Unix,
                 _ => Os::Unknown,
             }
@@ -77,14 +100,14 @@ impl From<String> for Os {
         Os::from(s.as_str())
     }
 }
-
+/// Detect the current operating system.
 pub fn detect() -> Os {
     if cfg!(target_os = "linux") {
         Os::Linux(LinuxOs::detect())
     } else if cfg!(target_os = "windows") {
         Os::Windows
     } else if cfg!(target_os = "macos") {
-        Os::Mac
+        Os::MacOs
     } else {
         Os::Unknown
     }

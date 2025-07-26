@@ -34,7 +34,7 @@ pub struct Op<'a> {
 impl SourceAction for Op<'_> {
     async fn sync(
         &self,
-        ctx: Context<'_>,
+        ctx: &Context,
         opt: &DotConfig,
         dst: &str,
         schema: &AppSchema,

@@ -16,7 +16,7 @@ pub async fn try_copy(src: &User, src_path: &U8Path, dst: &User, dst_path: &U8Pa
 }
 
 pub struct CopyContext<'a> {
-    ctx: Context<'a>,
+    ctx: &'a Context,
     pub src: &'a User,
     src_uid: &'a str,
     dst: &'a User,
@@ -25,14 +25,14 @@ pub struct CopyContext<'a> {
 }
 
 impl<'a> Deref for CopyContext<'a> {
-    type Target = Context<'a>;
+    type Target = Context;
     fn deref(&self) -> &Self::Target {
-        &self.ctx
+        self.ctx
     }
 }
 impl<'a> CopyContext<'a> {
     pub fn new(
-        ctx: Context<'a>,
+        ctx: &'a Context,
         src_uid: &'a str,
         dst_uid: &'a str,
         mut opt: Option<&'a str>,
@@ -236,9 +236,9 @@ mod tests {
     use std::{collections::HashMap, path::Path, time::Duration};
 
     use crate::{
+        Context,
         cache::{MultiCache, SqliteCache},
         dev::User,
-        dv::tests::TestDv,
         interactor::TermInteractor,
     };
 
@@ -252,7 +252,7 @@ mod tests {
     ///
     /// - `src`: list of (name, content) pairs to create in the source directory
     /// - `dst`: list of (name, content) pairs to create in the destination directory
-    async fn tenv(src: &[(&str, &str)], dst: &[(&str, &str)]) -> (TestDv, TempDir) {
+    async fn tenv(src: &[(&str, &str)], dst: &[(&str, &str)]) -> (Context, TempDir) {
         let int = TermInteractor::new().unwrap();
         let mut cache = MultiCache::default();
         cache.add_cache(SqliteCache::memory());
@@ -272,11 +272,12 @@ mod tests {
             f.write_str(content).unwrap();
         }
         (
-            TestDv {
+            Context {
                 dry_run: false,
-                users,
                 cache,
                 interactor: int,
+                users,
+                devices: HashMap::new(),
             },
             dir,
         )
@@ -321,24 +322,30 @@ mod tests {
         }
     }
     async fn copy_dir_fixture(src: &str, dst: &str) {
-        let (dv, dir) = tenv(&[("f0", "f0"), ("f1", "f1")], &[]).await;
-        let ctx = CopyContext::new(dv.context(), "this", "this", Some("y")).unwrap();
+        let (ctx, dir) = tenv(&[("f0", "f0"), ("f1", "f1")], &[]).await;
+        let ctx = CopyContext::new(&ctx, "this", "this", Some("y")).unwrap();
         assert!(ctx.copy(src, dst).await.unwrap(), "copy should success");
         content_assert(&dir.child("dst"), &[("f0", "f0"), ("f1", "f1")]);
-        cache_assert2(ctx.cache, dir.child("src"), dir.child("dst"), &["f0", "f1"]).await;
+        cache_assert2(
+            &ctx.cache,
+            dir.child("src"),
+            dir.child("dst"),
+            &["f0", "f1"],
+        )
+        .await;
     }
 
     /// Test operation of copy("src/f0", `dst`) will generate `expect`
     async fn copy_file_fixture(dst: &str, expect: &str, default: &str) {
-        let (dv, dir) = tenv(&[("f0", "f0")], &[]).await;
-        let ctx = CopyContext::new(dv.context(), "this", "this", Some(default)).unwrap();
+        let (ctx, dir) = tenv(&[("f0", "f0")], &[]).await;
+        let ctx = CopyContext::new(&ctx, "this", "this", Some(default)).unwrap();
         assert!(
             ctx.copy("src/f0", dst).await.unwrap(),
             "copy should success"
         );
         dir.child(expect).assert("f0");
         cache_assert(
-            ctx.cache,
+            &ctx.cache,
             dir.child("src/f0").path(),
             dir.child(expect).path(),
         )
@@ -358,8 +365,8 @@ mod tests {
     }
     #[tokio::test]
     async fn test_update() {
-        let (dv, dir) = tenv(&[("f0", "f00"), ("f1", "f11")], &[]).await;
-        let ctx = CopyContext::new(dv.context(), "this", "this", Some("y")).unwrap();
+        let (ctx, dir) = tenv(&[("f0", "f00"), ("f1", "f11")], &[]).await;
+        let ctx = CopyContext::new(&ctx, "this", "this", Some("y")).unwrap();
         assert!(ctx.copy("src", "dst").await.unwrap(), "sync should success");
         tokio::time::sleep(Duration::from_secs(2)).await;
         let src = dir.child("src");
@@ -372,13 +379,13 @@ mod tests {
         let dst = dir.child("dst");
         dst.child("f0").assert("f0");
         dst.child("f1").assert("f1");
-        cache_assert(ctx.cache, src.child("f0").path(), dst.child("f0").path()).await;
-        cache_assert(ctx.cache, src.child("f1").path(), dst.child("f1").path()).await;
+        cache_assert(&ctx.cache, src.child("f0").path(), dst.child("f0").path()).await;
+        cache_assert(&ctx.cache, src.child("f1").path(), dst.child("f1").path()).await;
     }
     #[tokio::test]
     async fn test_donothing() {
-        let (dv, dir) = tenv(&[("f0", "f0"), ("f1", "f1")], &[]).await;
-        let mut ctx = CopyContext::new(dv.context(), "this", "this", Some("y")).unwrap();
+        let (ctx, dir) = tenv(&[("f0", "f0"), ("f1", "f1")], &[]).await;
+        let mut ctx = CopyContext::new(&ctx, "this", "this", Some("y")).unwrap();
         let src = dir.child("src");
         assert!(
             ctx.copy("src/", "dst").await.unwrap(),
@@ -392,13 +399,13 @@ mod tests {
         src.child("f0").assert("f0");
         src.child("f1").assert("f1");
         cache_assert(
-            ctx.cache,
+            &ctx.cache,
             dir.child("src/f0").path(),
             dir.child("dst/f0").path(),
         )
         .await;
         cache_assert(
-            ctx.cache,
+            &ctx.cache,
             dir.child("src/f1").path(),
             dir.child("dst/f1").path(),
         )

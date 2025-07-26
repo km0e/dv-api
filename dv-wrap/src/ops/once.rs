@@ -1,13 +1,13 @@
 use super::dev::*;
 
 pub struct Once<'a, 'b> {
-    pub ctx: Context<'a>,
+    pub ctx: &'a Context,
     pub id: &'b str,
     pub key: &'b str,
 }
 
 impl<'a, 'b> Once<'a, 'b> {
-    pub fn new(ctx: Context<'a>, id: &'b str, key: &'b str) -> Self {
+    pub fn new(ctx: &'a Context, id: &'b str, key: &'b str) -> Self {
         Self { ctx, id, key }
     }
     pub async fn test(&self) -> Result<bool> {

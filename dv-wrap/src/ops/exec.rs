@@ -1,7 +1,7 @@
 use super::dev::*;
 
 pub async fn exec(
-    ctx: &Context<'_>,
+    ctx: &Context,
     uid: impl AsRef<str>,
     shell: Option<&str>,
     commands: impl AsRef<str>,
@@ -22,6 +22,6 @@ pub async fn exec(
             whatever!("exec error: {}", msg);
         }
     }
-    action!(ctx, true, "exec {}", commands);
+    action!(ctx, true, "run {}", commands);
     Ok(true)
 }

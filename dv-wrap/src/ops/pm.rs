@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use os2::{LinuxOs, Os};
 use strum::{Display, EnumIs, EnumString};
 mod dev {
@@ -8,7 +6,7 @@ mod dev {
     pub use super::support::*;
 }
 use dev::*;
-use tracing::{info, warn};
+use tracing::info;
 
 mod platform;
 mod support;
@@ -46,56 +44,19 @@ impl Pm {
             _ => Ok(Self::Unknown),
         }
     }
-    pub async fn install(
-        &self,
-        u: &User,
-        interactor: &DynInteractor,
-        package: &str,
-    ) -> Result<bool> {
+
+    pub async fn install(&self, ctx: &Context, uid: &str, packages: &str) -> Result<bool> {
+        let user = ctx.get_user(uid)?;
+        let interactor = &ctx.interactor;
         match self {
-            Pm::Apk => apk::install(u, interactor, package).await,
-            Pm::Apt => apt::install(u, interactor, package).await,
-            Pm::Pacman => pacman::install(u, interactor, package).await,
-            Pm::Yay => yay::install(u, interactor, package).await,
-            Pm::Paru => paru::install(u, interactor, package).await,
-            Pm::WinGet => winget::install(u, interactor, package).await,
+            Pm::Apk => apk::install(user, interactor, packages).await,
+            Pm::Apt => apt::install(user, interactor, packages).await,
+            Pm::Pacman => pacman::install(user, interactor, packages).await,
+            Pm::Yay => yay::install(user, interactor, packages).await,
+            Pm::Paru => paru::install(user, interactor, packages).await,
+            Pm::WinGet => winget::install(user, interactor, packages).await,
             Pm::Unknown => whatever!("Unknown Pm"),
         }
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct Package<'a> {
-    pub pm: HashMap<Pm, &'a str>,
-}
-
-impl std::fmt::Display for Package<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.pm
-                .iter()
-                .map(|(k, v)| format!("{k}: {v}"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
-    }
-}
-
-impl Package<'_> {
-    pub async fn install(&self, ctx: Context<'_>, uid: &str, pm: &Pm) -> Result<bool> {
-        let user = ctx.get_user(uid)?;
-        let res = ctx.dry_run || {
-            if let Some(package) = self.pm.get(pm) {
-                pm.install(user, ctx.interactor, package).await
-            } else {
-                warn!("No package found for {:?}", pm);
-                Ok(false)
-            }
-        }?;
-        action!(ctx, res, "install {}", self);
-        Ok(res)
     }
 }
 

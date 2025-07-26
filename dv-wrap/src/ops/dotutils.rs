@@ -44,7 +44,7 @@ impl DotUtil {
             source: HashMap::new(),
         }
     }
-    pub async fn add_schema(&mut self, ctx: Context<'_>, user: &str, path: &str) -> Result<()> {
+    pub async fn add_schema(&mut self, ctx: &Context, user: &str, path: &str) -> Result<()> {
         let user = ctx.get_user(user)?;
         let mut file = user.open(path.into(), OpenFlags::READ).await?;
         let mut content = String::new();
@@ -53,7 +53,7 @@ impl DotUtil {
         self.schema = schema.into_schema_storage();
         Ok(())
     }
-    pub async fn add_source(&mut self, ctx: Context<'_>, user: &str, path: &str) -> Result<()> {
+    pub async fn add_source(&mut self, ctx: &Context, user: &str, path: &str) -> Result<()> {
         let u = ctx.get_user(user)?;
         let cfg_path = U8Path::new(path).join("config.toml");
         let mut file = u.open(&cfg_path, OpenFlags::READ).await?;
@@ -73,7 +73,7 @@ impl DotUtil {
         );
         Ok(())
     }
-    pub async fn sync(&self, ctx: Context<'_>, apps: Vec<DotConfig>, dst: &str) -> Result<()> {
+    pub async fn sync(&self, ctx: &Context, apps: Vec<DotConfig>, dst: &str) -> Result<()> {
         let dst_u = ctx.get_user(dst)?;
         for mut opt in apps {
             debug!("sync app {}", opt.name);

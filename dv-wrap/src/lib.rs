@@ -5,7 +5,6 @@ mod context;
 pub use context::Context;
 mod interactor;
 pub use interactor::TermInteractor;
-mod dv;
 
 mod user;
 pub use user::User;

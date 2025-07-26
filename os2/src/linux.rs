@@ -12,12 +12,16 @@ pub enum Linux {
     #[default]
     #[strum(serialize = "linux")]
     Unknown,
-    #[strum(serialize = "manjaro")]
-    Manjaro,
     #[strum(serialize = "alpine")]
     Alpine,
+    #[strum(serialize = "arch")]
+    Arch,
     #[strum(serialize = "debian")]
     Debian,
+    #[strum(serialize = "fedora")]
+    Fedora,
+    #[strum(serialize = "manjaro")]
+    Manjaro,
     #[strum(serialize = "ubuntu")]
     Ubuntu,
 }

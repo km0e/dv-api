@@ -1,11 +1,12 @@
 [package]
 name = "os2"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "os2 - a library for working with operating system features in Rust"
 license = "MIT"
+readme = "README.md"
 
 [features]
 default = []
