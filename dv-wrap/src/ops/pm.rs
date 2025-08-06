@@ -1,32 +1,100 @@
+use super::dev::*;
 use os2::{LinuxOs, Os};
-use strum::{Display, EnumIs, EnumString};
-mod dev {
-    pub use super::super::dev::*;
-    pub use super::Pm;
-    pub use super::support::*;
-}
-use dev::*;
 use tracing::info;
 
 mod platform;
-mod support;
 
-#[derive(Debug, Clone, Copy, Display, Hash, PartialEq, Eq, EnumIs, EnumString)]
-#[strum(serialize_all = "snake_case")]
-pub enum Pm {
-    #[strum(serialize = "apk")]
-    Apk,
-    #[strum(serialize = "apt")]
-    Apt,
-    #[strum(serialize = "pacman")]
-    Pacman,
-    #[strum(serialize = "yay")]
-    Yay,
-    #[strum(serialize = "paru")]
-    Paru,
-    #[strum(serialize = "winget")]
-    WinGet,
-    Unknown,
+#[derive(Debug, Clone)]
+pub struct Pm {
+    pub name: &'static str,
+    pub action: &'static [&'static [&'static [&'static str]; 2]],
+}
+
+macro_rules! generate_pm_structs {
+    (
+        $(
+            $id:ident {
+                name = $name:expr,
+                install = [$($install_args:expr),* $(,)?], [$($install_confirm:expr),* $(,)?]
+                update  = [$($update_args:expr),* $(,)?],  [$($update_confirm:expr),* $(,)?]
+                upgrade = [$($upgrade_args:expr),* $(,)?], [$($upgrade_confirm:expr),* $(,)?]
+            }
+        )*
+    ) => {
+
+
+        $(
+            pub const fn $id() -> Pm {
+                Pm {
+                    name: $name,
+                    action: &[
+                        &[
+                            &[$($install_args),*],
+                            &[$($install_confirm),*]
+                        ],
+                        &[
+                            &[$($update_args),*],
+                            &[$($update_confirm),*]
+                        ],
+                        &[
+                            &[$($upgrade_args),*],
+                            &[$($upgrade_confirm),*]
+                        ],
+                    ],
+                }
+            }
+        )*
+    };
+}
+impl Pm {
+    generate_pm_structs! {
+        apk {
+            name = "apk",
+            install = ["add"], []
+            update  = ["update"], []
+            upgrade = ["upgrade"], []
+        }
+        apt {
+            name = "apt",
+            install = ["install"], ["-y"]
+            update  = ["update"], []
+            upgrade = ["upgrade"], ["-y"]
+        }
+        pacman {
+            name = "pacman",
+            install = ["-S" ], ["--noconfirm"]
+            update  = ["-Sy"], []
+            upgrade = ["-Su"], []
+        }
+        yay {
+            name = "yay",
+            install = ["-S" ], ["--noconfirm"]
+            update  = ["-Sy"], []
+            upgrade = ["-Su"], []
+        }
+        paru {
+            name = "paru",
+            install = ["-S"], ["--noconfirm"]
+            update  = ["-Sy"], []
+            upgrade = ["-Su"], []
+        }
+        winget {
+            name = "winget",
+            install = ["install"],
+                [
+                    "--accept-source-agreements",
+                    "--accept-package-agreements"
+                ]
+            update  = [], []
+            upgrade = [], []
+        }
+        unknown {
+            name = "unknown",
+            install = [], []
+            update  = [], []
+            upgrade = [], []
+        }
+    }
 }
 
 impl Pm {
@@ -41,42 +109,50 @@ impl Pm {
                 _ => whatever!("Unknown LinuxOs"),
             },
             Os::Windows => platform::windows::detect(u).await,
-            _ => Ok(Self::Unknown),
-        }
-    }
-
-    pub async fn install(&self, ctx: &Context, uid: &str, packages: &str) -> Result<bool> {
-        let user = ctx.get_user(uid)?;
-        let interactor = &ctx.interactor;
-        match self {
-            Pm::Apk => apk::install(user, interactor, packages).await,
-            Pm::Apt => apt::install(user, interactor, packages).await,
-            Pm::Pacman => pacman::install(user, interactor, packages).await,
-            Pm::Yay => yay::install(user, interactor, packages).await,
-            Pm::Paru => paru::install(user, interactor, packages).await,
-            Pm::WinGet => winget::install(user, interactor, packages).await,
-            Pm::Unknown => whatever!("Unknown Pm"),
+            _ => Ok(Self::unknown()),
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+impl Pm {
+    async fn action(
+        &self,
+        ctx: &Context,
+        uid: &str,
+        idx: usize,
+        packages: impl Iterator<Item = &str> + Send,
+        confirm: bool,
+    ) -> Result<bool> {
+        let action = self.action[idx];
+        let args = action[0].iter().copied().chain(if confirm {
+            action[1].iter().copied()
+        } else {
+            <&[&str]>::default().iter().copied()
+        });
+        let script = Script::Split {
+            program: self.name,
+            args: Box::new(args.chain(packages)),
+        };
+        if !ctx.dry_run && ctx.pty(uid, script).await? != 0 {
+            whatever!("{} failed", idx);
+        }
+        Ok(true)
+    }
+    //TODO:better generate this code
+    pub async fn install(&self, ctx: &Context, uid: &str, packages: &str, y: bool) -> Result<bool> {
+        info!("{} packages: {}", self.name, packages);
+        let packages = packages.split_whitespace();
+        self.action(ctx, uid, 0, packages, y).await
+    }
 
-    #[tokio::test]
-    async fn pm_from_str() {
-        let pm: Pm = "apk".parse().unwrap();
-        assert_eq!(pm, Pm::Apk);
-        let pm: Pm = "apt".parse().unwrap();
-        assert_eq!(pm, Pm::Apt);
-        let pm: Pm = "pacman".parse().unwrap();
-        assert_eq!(pm, Pm::Pacman);
-        let pm: Pm = "yay".parse().unwrap();
-        assert_eq!(pm, Pm::Yay);
-        let pm: Pm = "paru".parse().unwrap();
-        assert_eq!(pm, Pm::Paru);
-        let pm: Pm = "winget".parse().unwrap();
-        assert_eq!(pm, Pm::WinGet);
+    pub async fn update(&self, ctx: &Context, uid: &str, confirm: bool) -> Result<bool> {
+        info!("{} update", self.name);
+        self.action(ctx, uid, 1, std::iter::empty::<&str>(), confirm)
+            .await
+    }
+    pub async fn upgrade(&self, ctx: &Context, uid: &str, packages: &str, y: bool) -> Result<bool> {
+        info!("{} upgrade packages: {}", self.name, packages);
+        let packages = packages.split_whitespace();
+        self.action(ctx, uid, 2, packages, y).await
     }
 }

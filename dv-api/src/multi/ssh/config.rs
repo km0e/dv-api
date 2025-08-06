@@ -3,18 +3,18 @@ use std::{collections::HashMap, sync::Arc};
 use os2::Os;
 use russh::client::{self, AuthResult, Handle};
 use tokio::io::AsyncReadExt;
-use tracing::warn;
+use tracing::{debug, info, warn};
 
 use crate::whatever;
 
 use super::{Client, SSHSession, dev::*};
 
-pub async fn create(host: String, info: &mut Config) -> Result<BoxedUser> {
-    let (h, user) = connect(&host, info.get("passwd").cloned()).await?;
-    if info.get("user").is_none() {
-        info.set("user", user.clone());
+pub async fn create(host: String, cfg: &mut Config) -> Result<BoxedUser> {
+    let (h, user) = connect(&host, cfg.get("passwd").cloned()).await?;
+    if cfg.get("user").is_none() {
+        cfg.set("user", user.clone());
     }
-    let os = info.get("os").map(|s| s.as_str()).unwrap_or("");
+    let os = cfg.get("os").map(|s| s.as_str()).unwrap_or("");
     let mut os = os.into();
     let env = detect2(&h, &mut os).await?;
     let channel = h.channel_open_session().await?;
@@ -27,14 +27,15 @@ pub async fn create(host: String, info: &mut Config) -> Result<BoxedUser> {
         _ => None,
     }
     .cloned();
-    info.variables.extend(env);
+    cfg.variables.extend(env);
+    cfg.set("os", os.to_string());
     let sys = SSHSession {
         session: h,
         sftp,
         home,
     };
     let u: BoxedUser = sys.into();
-    info.is_system.get_or_insert_default();
+    cfg.is_system.get_or_insert_default();
     Ok(u)
 }
 
@@ -95,6 +96,7 @@ async fn connect(host: &str, passwd: Option<String>) -> Result<(Handle<Client>, 
 }
 
 async fn detect2(h: &Handle<Client>, os: &mut Os) -> Result<HashMap<String, String>> {
+    info!("detecting os: {}", os);
     if os.is_linux() {
         detect(h, os).await
     } else {
@@ -159,6 +161,7 @@ async fn detect(h: &Handle<Client>, os: &mut Os) -> Result<HashMap<String, Strin
         &["ID"],
     )
     .await?;
+    debug!("os_d: {:?}", os_d);
     if let Some(os_d) = os_d {
         *os = os_d.into();
     }

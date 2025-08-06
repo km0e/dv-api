@@ -1,3 +1,4 @@
+use dv_api::process::{PtyProcessConsumer, Script};
 use tracing::debug;
 
 use super::dev::*;
@@ -22,12 +23,12 @@ fi
 
     if ec == 1 {
         debug!("detected yay as package manager");
-        Ok(Pm::Yay)
+        Ok(Pm::yay())
     } else if ec == 2 {
         debug!("detected paru as package manager");
-        Ok(Pm::Paru)
+        Ok(Pm::paru())
     } else {
         debug!("detected pacman as package manager");
-        Ok(Pm::Pacman)
+        Ok(Pm::pacman())
     }
 }

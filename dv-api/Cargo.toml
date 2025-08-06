@@ -12,12 +12,12 @@ e4pty = { version = "0.1" }
 fastrand = "2.3"
 home.workspace = true
 os2 = { version = "0.1" }
-russh = { version = "0.53", default-features = false, features = [
+russh = { version = "0.54", default-features = false, features = [
     "flate2",
     "ring",
     "pty",
 ], git = "https://github.com/km0e/russh.git", branch = "pty" }
-russh-config = { git = "https://github.com/km0e/russh.git", branch = "pty" }
+russh-config = { version = "0.54", git = "https://github.com/km0e/russh.git", branch = "pty" }
 russh-sftp = "2.1"
 rustix = { version = "1.0", features = ["pty"] }
 strum = { version = "0.27", features = ["derive"] }

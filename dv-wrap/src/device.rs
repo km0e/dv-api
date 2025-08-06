@@ -3,7 +3,7 @@ use tracing::debug;
 
 use crate::{User, ops::Pm};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct DeviceInfo {
     pub os: Os,
     pub pm: Pm,

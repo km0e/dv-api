@@ -5,8 +5,8 @@ use std::collections::HashMap;
 #[derive(Debug)]
 pub struct Device {
     pub info: DeviceInfo,
-    system: Option<String>,
-    users: Vec<String>,
+    pub system: Option<String>,
+    pub users: Vec<String>,
 }
 
 impl Device {
@@ -51,7 +51,7 @@ impl Context {
     }
     pub async fn add_user(&mut self, uid: String, user: User) -> Result<()> {
         let hid = user.vars.get("hid").cloned();
-        if let Some(hid) = hid {
+        if let Some(hid) = &hid {
             let hid = hid.to_string();
             let dev = match self.devices.get_mut(&hid) {
                 Some(dev) => dev,
@@ -67,7 +67,22 @@ impl Context {
                 dev.users.push(uid.clone());
             }
         };
+        action!(
+            self,
+            true,
+            "add user {}, hid: {}, os: {}",
+            uid,
+            hid.unwrap_or_default(),
+            user.os()
+        );
         self.users.insert(uid, user);
         Ok(())
+    }
+    pub async fn pty(&self, uid: impl AsRef<str>, script: Script<'_, '_>) -> Result<i32> {
+        let user = self.get_user(uid)?;
+        let pp = user
+            .pty(script, self.interactor.window_size().await)
+            .await?;
+        Ok(self.interactor.ask(pp).await?)
     }
 }
