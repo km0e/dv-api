@@ -64,15 +64,18 @@ impl User {
     pub async fn exist(&self, path: &U8Path) -> Result<bool> {
         let path = self.normalize(path)?;
         debug!("exist:{}", path);
-        Ok(self.inner.exist(&path).await?)
+        Ok(self.inner.file_attributes(&path).await?.1.is_some())
     }
-    pub async fn check_file(&self, path: &U8Path) -> Result<(U8PathBuf, Option<FileAttributes>)> {
+    pub async fn file_attributes(
+        &self,
+        path: &U8Path,
+    ) -> Result<(U8PathBuf, Option<FileAttributes>)> {
         let path = self.normalize(path)?;
         debug!("check_file:{}", path);
         Ok(self.inner.file_attributes(&path).await?)
     }
     pub async fn get_mtime(&self, path: &U8Path) -> Result<Option<i64>> {
-        let (path, fa) = self.check_file(path).await?;
+        let (path, fa) = self.file_attributes(path).await?;
         match fa {
             None => Ok(None),
             Some(FileAttributes {
@@ -85,7 +88,7 @@ impl User {
     }
     pub async fn check_path(&self, path: &str) -> Result<CheckInfo> {
         let path: &U8Path = path.into();
-        let (path, fa) = self.check_file(path).await?;
+        let (path, fa) = self.file_attributes(path).await?;
         debug!("check_path:{}", path);
         let Some(attr) = fa else {
             whatever!("{} not found", path)
@@ -100,7 +103,7 @@ impl User {
     }
     pub async fn check_dir(&self, path: &str) -> Result<DirInfo> {
         let path: &U8Path = path.into();
-        let (path, fa) = self.check_file(path).await?;
+        let (path, fa) = self.file_attributes(path).await?;
         debug!("check_path:{}", path);
         let Some(attr) = fa else {
             whatever!("{} not found", path)

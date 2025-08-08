@@ -29,7 +29,8 @@ pub struct Context {
 
 macro_rules! action {
     ($ctx:expr, $suc:expr, $fmt:expr, $($arg:tt)*) => {
-        $ctx.interactor.log(format!(concat!("[{}] {} ",$fmt), if $ctx.dry_run { "n" } else { "a" }, if $suc { "exec" } else { "skip" }, $($arg)*)).await;
+        use crossterm::style::Stylize;
+        $ctx.interactor.log(format!(concat!("[{}] {} ",$fmt), if $ctx.dry_run { "n" } else { "a" }, if $suc { "exec".green() } else { "skip".yellow() }, $($arg)*)).await;
     };
 }
 
@@ -49,7 +50,7 @@ impl Context {
             }
         }
     }
-    pub async fn add_user(&mut self, uid: String, user: User) -> Result<()> {
+    pub async fn add_user(&mut self, uid: String, mut user: User) -> Result<()> {
         let hid = user.vars.get("hid").cloned();
         if let Some(hid) = &hid {
             let hid = hid.to_string();
@@ -61,6 +62,17 @@ impl Context {
                     self.devices.get_mut(&hid).unwrap()
                 }
             };
+            match user.vars.get_mut("os") {
+                Some(os) => {
+                    let os2: os2::Os = os.as_str().into();
+                    if dev.info.os.compatible(&os2) && dev.info.os != os2 {
+                        *os = dev.info.os.to_string();
+                    }
+                }
+                None => {
+                    user.vars.insert("os".to_string(), dev.info.os.to_string());
+                }
+            }
             if user.is_system {
                 dev.system = Some(uid.clone());
             } else {

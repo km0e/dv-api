@@ -1,8 +1,9 @@
 mod cache;
-pub use cache::MultiCache;
-pub use cache::SqliteCache;
+pub use cache::{MultiCache, SqliteCache};
+
 mod context;
 pub use context::Context;
+
 mod interactor;
 pub use interactor::TermInteractor;
 

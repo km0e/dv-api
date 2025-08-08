@@ -150,16 +150,6 @@ impl Drop for RawModeGuard {
     }
 }
 
-#[cfg(not(windows))]
-fn setup_stdin_nonblock() -> std::io::Result<()> {
-    use rustix::fs;
-    use std::os::fd::AsFd;
-    let stdin = std::io::stdin();
-    let fd = stdin.as_fd();
-    fs::fcntl_setfl(fd, fs::fcntl_getfl(fd)? | fs::OFlags::NONBLOCK)?;
-    Ok(())
-}
-
 #[cfg(windows)]
 fn setup_stdin_nonblock() -> std::io::Result<()> {
     Ok(())
@@ -226,6 +216,16 @@ fn noblock_stdin() -> impl tokio::io::AsyncRead {
         rx,
         buffer: (vec![], 0),
     }
+}
+
+#[cfg(not(windows))]
+fn setup_stdin_nonblock() -> std::io::Result<()> {
+    use rustix::fs;
+    use std::os::fd::AsFd;
+    let stdin = std::io::stdin();
+    let fd = stdin.as_fd();
+    fs::fcntl_setfl(fd, fs::fcntl_getfl(fd)? | fs::OFlags::NONBLOCK)?;
+    Ok(())
 }
 
 #[cfg(not(windows))]

@@ -22,7 +22,7 @@ russh-sftp = "2.1"
 rustix = { version = "1.0", features = ["pty"] }
 strum = { version = "0.27", features = ["derive"] }
 tempfile = "3.20"
-thiserror = "2.0"
+thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 utf8path2 = { version = "0.1" }

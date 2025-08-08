@@ -41,10 +41,6 @@ impl This {
 
 #[async_trait]
 impl UserImpl for This {
-    async fn exist(&self, path: &U8Path) -> Result<bool> {
-        let path = self.canonicalize(path.as_str())?;
-        Ok(std::fs::exists(&path)?)
-    }
     async fn file_attributes(&self, path: &U8Path) -> Result<(U8PathBuf, Option<FileAttributes>)> {
         let path = self
             .canonicalize(path.as_str())?

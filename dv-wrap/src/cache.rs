@@ -16,18 +16,23 @@ pub struct MultiCache {
 }
 
 impl MultiCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     pub fn add_cache<C: Cache + Sync + Send + 'static>(&mut self, cache: C) {
         self.caches.push(Box::new(cache));
     }
+    
     pub fn add_sqlite(&mut self, db_path: impl AsRef<std::path::Path>) {
         self.caches.push(Box::new(SqliteCache::new(db_path)));
     }
     pub async fn get(&self, uid: &str, path: &str) -> Result<Option<(i64, i64)>> {
         for cache in &self.caches {
-            if let Ok(result) = cache.get(uid, path).await {
-                if result.is_some() {
-                    return Ok(result);
-                }
+            if let Ok(result) = cache.get(uid, path).await
+                && result.is_some()
+            {
+                return Ok(result);
             }
         }
         Ok(None)

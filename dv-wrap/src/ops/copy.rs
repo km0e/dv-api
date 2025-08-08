@@ -1,6 +1,7 @@
 use std::{borrow::Cow, ops::Deref};
 
 use super::dev::*;
+use futures::{StreamExt, TryStreamExt, stream};
 use tracing::{debug, trace};
 
 pub async fn try_copy(src: &User, src_path: &U8Path, dst: &User, dst_path: &U8Path) -> Result<()> {
@@ -172,26 +173,26 @@ impl<'a> CopyContext<'a> {
         dst_path: U8PathBuf,
         meta: Vec<Metadata>,
     ) -> Result<bool> {
-        let mut success = false;
-        let mut src_file = src_path.clone();
-        let mut dst_file = dst_path.clone();
-        for Metadata { path, attr } in meta {
-            src_file.push(&path);
-            dst_file.push(&path);
-            let (full_dst_file, dst_attr) = self.dst.check_file(&dst_file).await?;
-            let res = self
-                .check_copy_file(
-                    src_file.as_str().into(),
-                    full_dst_file.as_str().into(),
-                    attr,
-                    dst_attr,
-                )
-                .await?;
-            src_file.clone_from(&src_path);
-            dst_file.clone_from(&dst_path);
-            success |= res;
-        }
-        Ok(success)
+        let results = stream::iter(meta)
+            .map(|Metadata { path, attr }| {
+                let src_file = src_path.join(&path);
+                let dst_file = dst_path.join(&path);
+                async move {
+                    let (full_dst_file, dst_attr) = self.dst.file_attributes(&dst_file).await?;
+                    self.check_copy_file(
+                        src_file.as_str().into(),
+                        full_dst_file.as_str().into(),
+                        attr,
+                        dst_attr,
+                    )
+                    .await
+                }
+            })
+            .buffer_unordered(4)
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        Ok(results.into_iter().any(|r| r))
     }
 
     pub async fn copy(&self, src_path: impl AsRef<str>, dst_path: impl AsRef<str>) -> Result<bool> {
@@ -218,7 +219,7 @@ impl<'a> CopyContext<'a> {
             } else {
                 Cow::Borrowed(dst_path)
             };
-            let (dst_path2, fa) = self.dst.check_file(dst_path2.as_ref().into()).await?;
+            let (dst_path2, fa) = self.dst.file_attributes(dst_path2.as_ref().into()).await?;
             match info {
                 CheckInfo::Dir(DirInfo { path, files }) => {
                     self.check_copy_dir(path, dst_path2, files).await
@@ -253,7 +254,7 @@ mod tests {
     /// - `src`: list of (name, content) pairs to create in the source directory
     /// - `dst`: list of (name, content) pairs to create in the destination directory
     async fn tenv(src: &[(&str, &str)], dst: &[(&str, &str)]) -> (Context, TempDir) {
-        let int = TermInteractor::new().unwrap();
+        let interactor = TermInteractor::new().unwrap();
         let mut cache = MultiCache::default();
         cache.add_cache(SqliteCache::memory());
         let dir = TempDir::new().unwrap();
@@ -275,7 +276,7 @@ mod tests {
             Context {
                 dry_run: false,
                 cache,
-                interactor: int,
+                interactor,
                 users,
                 devices: HashMap::new(),
             },

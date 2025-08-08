@@ -119,9 +119,6 @@ impl SSHSession {
 
 #[async_trait]
 impl UserImpl for SSHSession {
-    async fn exist(&self, path: &U8Path) -> Result<bool> {
-        Ok(self.sftp.try_exists(self.canonicalize(path)?).await?)
-    }
     async fn file_attributes(&self, path: &U8Path) -> Result<(U8PathBuf, Option<FileAttributes>)> {
         let path = self.canonicalize(path)?.to_string();
         match self.sftp.metadata(&path).await {

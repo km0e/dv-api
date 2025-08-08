@@ -53,7 +53,7 @@ impl U8Path {
     pub fn new<S: AsRef<str> + ?Sized>(s: &S) -> &U8Path {
         unsafe { &*(s.as_ref() as *const str as *const U8Path) }
     }
-    pub fn components(&self) -> Components {
+    pub fn components(&self) -> Components<'_> {
         Path::new(&self.0).components()
     }
     pub fn join<P: AsRef<str>>(&self, path: P) -> U8PathBuf {
