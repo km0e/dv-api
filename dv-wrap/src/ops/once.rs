@@ -15,7 +15,7 @@ impl<'a, 'b> Once<'a, 'b> {
     }
     pub async fn set(&self) -> Result<()> {
         if !self.ctx.dry_run {
-            self.ctx.cache.set(self.id, self.key, 0, 0).await?;
+            self.ctx.cache.set(self.id, self.key, "", "").await?;
             action!(self.ctx, true, "once {} {}", self.id, self.key);
         }
         Ok(())

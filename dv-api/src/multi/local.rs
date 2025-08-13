@@ -71,11 +71,8 @@ impl UserImpl for This {
                 if metadata.is_dir() {
                     continue;
                 }
-                let Ok(rel_path) = file_path.strip_prefix(path2) else {
-                    continue;
-                };
                 result.push(Metadata {
-                    path: rel_path.to_string_lossy().to_string().into(),
+                    path: file_path.to_string_lossy().to_string().into(),
                     attr: (&metadata).into(),
                 });
             }
@@ -102,6 +99,19 @@ impl UserImpl for This {
         trace!("try to exec command");
         let pty = openpty_local(win_size, command)?;
         Ok(pty)
+    }
+
+    async fn rm(&self, path: &U8Path) -> Result<()> {
+        let path = self.canonicalize(path.as_str())?;
+        debug!("rm:{}", path.display());
+        match std::fs::remove_file(&path) {
+            Ok(_) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                debug!("{} not found", path.display());
+                Ok(())
+            }
+            Err(e) => Err(e.into()),
+        }
     }
     async fn open(
         &self,

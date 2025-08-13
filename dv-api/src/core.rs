@@ -14,6 +14,7 @@ pub trait UserImpl {
     //TODO:better path handling
     async fn file_attributes(&self, path: &U8Path) -> Result<(U8PathBuf, Option<FileAttributes>)>;
     async fn glob_file_meta(&self, path: &U8Path) -> Result<Vec<Metadata>>;
+    async fn rm(&self, path: &U8Path) -> Result<()>;
     async fn open(
         &self,
         path: &U8Path,

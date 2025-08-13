@@ -5,8 +5,8 @@ mod dev {
     pub use dv_api::whatever;
 }
 
-mod copy;
-pub use copy::CopyContext;
+mod sync;
+pub use sync::SyncContext;
 mod exec;
 pub use exec::exec;
 mod pm;

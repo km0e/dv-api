@@ -101,6 +101,15 @@ impl User {
         };
         Ok(info)
     }
+    pub async fn glob(&self, path: &U8Path) -> Result<Vec<Metadata>> {
+        Ok(self.inner.glob_file_meta(path).await?)
+    }
+    pub async fn rm(&self, path: &U8Path) -> Result<()> {
+        let path = self.normalize(path)?;
+        debug!("rm:{}", path);
+        self.inner.rm(&path).await?;
+        Ok(())
+    }
     pub async fn check_dir(&self, path: &str) -> Result<DirInfo> {
         let path: &U8Path = path.into();
         let (path, fa) = self.file_attributes(path).await?;

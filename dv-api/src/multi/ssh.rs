@@ -137,7 +137,6 @@ impl UserImpl for SSHSession {
         let metadata = self.sftp.metadata(path.to_string()).await?;
         if metadata.is_dir() {
             let mut stack = vec![path.to_string()];
-            let prefix = format!("{path}/");
             let mut infos = Vec::new();
             while let Some(path) = stack.pop() {
                 for entry in self.sftp.read_dir(&path).await? {
@@ -151,7 +150,7 @@ impl UserImpl for SSHSession {
                         continue;
                     }
                     infos.push(Metadata {
-                        path: sub_path.strip_prefix(&prefix).unwrap().to_string().into(),
+                        path: sub_path.into(),
                         attr: entry.metadata(),
                     });
                 }
@@ -176,6 +175,20 @@ impl UserImpl for SSHSession {
             stdout,
             stderr: Vec::new(),
         })
+    }
+    async fn rm(&self, path: &U8Path) -> Result<()> {
+        let path = self.canonicalize(path)?;
+        debug!("rm: {}", path);
+        match self.sftp.remove_file(path.as_ref()).await {
+            Ok(_) => Ok(()),
+            Err(russh_sftp::client::error::Error::Status(s))
+                if s.status_code == StatusCode::NoSuchFile =>
+            {
+                debug!("{} not found", path);
+                Ok(())
+            }
+            Err(e) => Err(e.into()),
+        }
     }
     async fn pty(&self, command: Script<'_, '_>, win_size: WindowSize) -> Result<BoxedPty> {
         debug!("open pty with size: {:?}", win_size);

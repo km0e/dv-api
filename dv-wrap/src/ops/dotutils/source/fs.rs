@@ -8,13 +8,13 @@ use super::SourceAction;
 pub struct FileSystemSource {
     pub user: String,
     pub path: U8PathBuf,
-    pub storage: SchemaStorage,
+    pub storage: SourceStorage,
 }
 impl FileSystemSource {
     pub fn new(
         user: impl Into<String>,
         path: impl Into<U8PathBuf>,
-        storage: SchemaStorage,
+        storage: SourceStorage,
     ) -> Self {
         Self {
             user: user.into(),
@@ -27,7 +27,7 @@ impl FileSystemSource {
 pub struct Op<'a> {
     pub user: &'a String,
     pub path: &'a U8PathBuf,
-    pub source: &'a AppSchema,
+    pub source: &'a SourceSchema,
 }
 
 #[async_trait::async_trait]
@@ -35,33 +35,22 @@ impl SourceAction for Op<'_> {
     async fn sync(
         &self,
         ctx: &Context,
-        opt: &DotConfig,
+        opt: DotConfig,
         dst: &str,
         schema: &AppSchema,
     ) -> Result<()> {
-        let copy_ctx = crate::ops::CopyContext::new(ctx, self.user, dst, Some(&opt.copy_action))?;
+        let copy_ctx = crate::ops::SyncContext::new(ctx, self.user, dst, Some(&opt.copy_action))?;
         for (name, cfg) in &self.source.paths {
             let Some(dst_cfg) = schema.paths.get(name) else {
                 continue;
             };
-            let mut src_path = self.path.clone();
-            for sub in cfg {
-                src_path.push(sub);
-                if copy_ctx.src.exist(&src_path).await? {
-                    break;
-                }
-                src_path.clone_from(self.path);
-            }
-            if src_path.as_str() == self.path.as_str() {
-                whatever!("app {} not found in source config", name)
+            let src_path = self.path.join(cfg);
+            if copy_ctx.src.exist(&src_path).await? {
+                break;
             }
             let mut success = false;
             for dst_path in dst_cfg {
-                if copy_ctx
-                    .copy(src_path.as_str(), dst_path.as_str())
-                    .await
-                    .is_ok()
-                {
+                if copy_ctx.sync(&src_path, &dst_path).await.is_ok() {
                     success = true;
                     break;
                 }
@@ -72,10 +61,34 @@ impl SourceAction for Op<'_> {
         }
         Ok(())
     }
+    async fn upload(
+        &self,
+        ctx: &Context,
+        opt: DotConfig,
+        src: &str,
+        schema: &AppSchema,
+    ) -> Result<()> {
+        let copy_ctx = crate::ops::SyncContext::new(ctx, src, self.user, Some(&opt.copy_action))?;
+        for (name, cfg) in &schema.paths {
+            let Some(dst_cfg) = self.source.paths.get(name) else {
+                continue;
+            };
+            let dst_path = self.path.join(dst_cfg);
+            for src_path in cfg {
+                let sp = src_path.as_ref();
+                if copy_ctx.src.exist(sp).await.is_ok_and(|exists| exists)
+                    && !copy_ctx.sync(&sp, &dst_path).await?
+                {
+                    whatever!("failed to upload {} to {}", dst_path, sp);
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Source for FileSystemSource {
-    fn try_sync<'a>(&'a self, name: &str, os: Os) -> Option<Box<dyn 'a + SourceAction>> {
+    fn search<'a>(&'a self, name: &str, os: Os) -> Option<Box<dyn 'a + SourceAction>> {
         Some(Box::new(Op {
             user: &self.user,
             path: &self.path,

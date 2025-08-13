@@ -1,7 +1,7 @@
 use crate::util::*;
 
+pub use camino::{Utf8Path as U8Path, Utf8PathBuf as U8PathBuf};
 pub use russh_sftp::protocol::FileAttributes;
-pub use utf8path2::*;
 
 #[derive(Debug, Clone)]
 pub struct Metadata {

@@ -81,26 +81,27 @@ impl Interactor for TermInteractor {
             }
         }
     }
-    async fn confirm(&self, msg: String, opts: &[&str]) -> Result<usize> {
+    async fn confirm(&self, mut msg: String, opts: &[&str]) -> Result<usize> {
         let opts = opts
             .iter()
-            .enumerate()
-            .map(|(i, s)| {
+            .map(|s| {
                 let (c, s) = s
                     .split_once('/')
-                    .and_then(|(c, s)| c.chars().next().map(|c| (c, s)))
-                    .unwrap_or((char::from_digit(i as u32 + 1, 10).unwrap(), s));
-                (c, s.to_string())
+                    .and_then(|(c, _)| c.chars().next().map(|c| (c, s)))
+                    .unwrap_or((s.chars().next().unwrap(), s));
+                (c, s)
             })
             .collect::<Vec<_>>();
 
         trace!("start to send confirm request");
-        println!("{}", msg);
-        print!("opts [");
+        msg.push('[');
         for opt in &opts {
-            print!("{}: {}, ", opt.0, opt.1);
+            msg.push_str(opt.1);
+            msg.push_str(", ");
         }
-        print!("]:");
+        msg.pop(); // remove last space
+        msg.pop(); // remove last comma
+        print!("{msg}] ");
         let mut stdout = std::io::stdout();
         stdout.flush()?;
         let _guard = RawModeGuard::new()?;

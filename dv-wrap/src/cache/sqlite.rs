@@ -1,6 +1,6 @@
 use std::path::Path;
 use tokio::sync::Mutex;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::error::{Error, Result};
 
@@ -17,9 +17,9 @@ impl SqliteCache {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS cache (
                 device TEXT NOT NULL,
-                path TEXT NOT NULL,
-                version INTEGER NOT NULL,
-                latest INTEGER NOT NULL,
+                key TEXT NOT NULL,
+                version TEXT NOT NULL,
+                latest TEXT NOT NULL,
                 PRIMARY KEY (device, path)
             )",
             [],
@@ -35,9 +35,9 @@ impl SqliteCache {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS cache (
                 device TEXT NOT NULL,
-                path TEXT NOT NULL,
-                version INTEGER NOT NULL,
-                latest INTEGER NOT NULL,
+                key TEXT NOT NULL,
+                version TEXT NOT NULL,
+                latest TEXT NOT NULL,
                 PRIMARY KEY (device, path)
             )",
             [],
@@ -51,39 +51,36 @@ impl SqliteCache {
 
 #[async_trait::async_trait]
 impl super::Cache for SqliteCache {
-    async fn get(&self, uid: &str, path: &str) -> Result<Option<(i64, i64)>> {
+    async fn get(&self, uid: &str, key: &str) -> Result<Option<(String, String)>> {
         let row = self.conn.lock().await.query_row(
-            "SELECT version, latest FROM cache WHERE device = ? AND path = ?",
-            [uid, path],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            "SELECT version, latest FROM cache WHERE device = ? AND key = ?",
+            [uid, key],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         );
         match row {
-            Ok(fs) => Ok(Some(fs)),
+            Ok(s) => Ok(Some(s)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(Error::unknown(e)),
         }
     }
-    async fn set(&self, uid: &str, path: &str, version: i64, latest: i64) -> Result<()> {
-        info!("cache set: {} {} {} {}", uid, path, version, latest);
+    async fn set(&self, uid: &str, key: &str, version: &str, latest: &str) -> Result<()> {
+        debug!("cache set: {} {} {} {}", uid, key, version, latest);
         self.conn
             .lock()
             .await
             .execute(
-                "INSERT OR REPLACE INTO cache (device, path, version, latest) VALUES (?, ?, ?, ?)",
-                [uid, path, &version.to_string(), &latest.to_string()],
+                "INSERT OR REPLACE INTO cache (device, key, version, latest) VALUES (?, ?, ?, ?)",
+                [uid, key, version, latest],
             )
             .map(|_| ())
             .map_err(Error::unknown)
     }
-    async fn del(&self, uid: &str, path: &str) -> Result<()> {
-        info!("cache del: {} {}", uid, path);
+    async fn del(&self, uid: &str, key: &str) -> Result<()> {
+        info!("cache del: {} {}", uid, key);
         let conn = self.conn.lock().await;
-        if !path.is_empty() {
-            conn.execute(
-                "DELETE FROM cache WHERE device = ? AND path = ?",
-                [uid, path],
-            )
-            .map(|_| ())
+        if !key.is_empty() {
+            conn.execute("DELETE FROM cache WHERE device = ? AND key = ?", [uid, key])
+                .map(|_| ())
         } else {
             conn.execute("DELETE FROM cache WHERE device = ?", [uid])
                 .map(|_| ())

@@ -1,5 +1,6 @@
 use super::dev::*;
 use crate::{DeviceInfo, cache::MultiCache, interactor::TermInteractor};
+use dv_api::whatever;
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -27,17 +28,20 @@ pub struct Context {
     pub devices: HashMap<String, Device>,
 }
 
-macro_rules! action {
-    ($ctx:expr, $suc:expr, $fmt:expr, $($arg:tt)*) => {
-        use crossterm::style::Stylize;
-        $ctx.interactor.log(format!(concat!("[{}] {} ",$fmt), if $ctx.dry_run { "n" } else { "a" }, if $suc { "exec".green() } else { "skip".yellow() }, $($arg)*)).await;
-    };
-}
-
-pub(crate) use action;
-use dv_api::whatever;
-
 impl Context {
+    pub fn new(dry_run: bool, mut cache: MultiCache, interactor: TermInteractor) -> Self {
+        let dir = directories::ProjectDirs::from("com", "dv", "dv");
+        if let Some(dir) = &dir {
+            cache.set_dir(dir.cache_dir().to_path_buf());
+        }
+        Self {
+            dry_run,
+            cache,
+            interactor,
+            users: HashMap::new(),
+            devices: HashMap::new(),
+        }
+    }
     pub fn contains_user(&self, uid: impl AsRef<str>) -> bool {
         self.users.contains_key(uid.as_ref())
     }
@@ -98,3 +102,12 @@ impl Context {
         Ok(self.interactor.ask(pp).await?)
     }
 }
+
+macro_rules! action {
+    ($ctx:expr, $suc:expr, $fmt:expr, $($arg:tt)*) => {
+        use crossterm::style::Stylize;
+        $ctx.interactor.log(format!(concat!("[{}] {} ",$fmt), if $ctx.dry_run { "n" } else { "a" }, if $suc { "exec".green() } else { "skip".yellow() }, $($arg)*)).await;
+    };
+}
+
+pub(crate) use action;
