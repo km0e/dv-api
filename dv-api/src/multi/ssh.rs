@@ -29,12 +29,15 @@ impl client::Handler for Client {
 }
 
 pub(crate) struct SSHSession {
-    session: client::Handle<Client>,
+    session: Vec<client::Handle<Client>>,
     sftp: SftpSession,
     home: Option<String>,
 }
 
 impl SSHSession {
+    fn session(&self) -> &client::Handle<Client> {
+        self.session.last().as_ref().expect("no session")
+    }
     fn canonicalize<'a, 'b: 'a>(&'b self, path: &'a U8Path) -> Result<Cow<'a, str>> {
         Ok(if let Some(sub) = path.as_str().strip_prefix("~") {
             let Some(home) = self.home.as_deref() else {
@@ -81,9 +84,7 @@ impl SSHSession {
                         .await;
                     if let Ok(mut file) = res {
                         file.write_all(&executor.prepare_clean()).await?;
-                        for blk in input {
-                            file.write_all(blk.as_bytes()).await?;
-                        }
+                        file.write_all(input.as_bytes()).await?;
                         break;
                     } else if retry == 0 {
                         res?;
@@ -161,7 +162,7 @@ impl UserImpl for SSHSession {
         }
     }
     async fn exec(&self, command: Script<'_, '_>) -> Result<Output> {
-        let channel = self.session.channel_open_session().await?;
+        let channel = self.session().channel_open_session().await?;
         let cmd = self.prepare_command(command).await?;
         info!("exec {}", cmd);
         channel.exec(true, cmd).await?;
@@ -192,7 +193,7 @@ impl UserImpl for SSHSession {
     }
     async fn pty(&self, command: Script<'_, '_>, win_size: WindowSize) -> Result<BoxedPty> {
         debug!("open pty with size: {:?}", win_size);
-        let channel = self.session.channel_open_session().await?;
+        let channel = self.session().channel_open_session().await?;
         channel
             .request_pty(
                 false,

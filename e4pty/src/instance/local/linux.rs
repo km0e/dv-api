@@ -1,5 +1,3 @@
-use std::os::{fd::AsRawFd, unix::process::ExitStatusExt};
-
 use async_trait::async_trait;
 use rustix_openpty::rustix::termios::{self, Winsize};
 use tokio::fs::File;
@@ -13,6 +11,7 @@ struct PtyCtlImpl {
 #[async_trait]
 impl PtyCtl for PtyCtlImpl {
     async fn wait(&mut self) -> Result<i32> {
+        use std::os::unix::process::ExitStatusExt;
         let ec = self.child.wait().map(|es| {
             es.code()
                 .unwrap_or_else(|| es.signal().map_or(1, |v| 128 + v))
@@ -67,7 +66,7 @@ pub fn openpty(window_size: WindowSize, script: Script<'_, '_>) -> std::io::Resu
     builder.stdout(pair.user.try_clone()?);
     let stdio = pair.controller.try_clone()?;
     unsafe {
-        use std::os::unix::process::CommandExt;
+        use std::os::{fd::AsRawFd, unix::process::CommandExt};
         builder.pre_exec(move || {
             // Create a new process group.
             #[cfg(target_os = "macos")]

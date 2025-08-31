@@ -52,18 +52,21 @@ impl BoxedPty {
         (self.ctl, self.writer, self.reader)
     }
 }
-
+#[derive(Debug, strum::EnumString, serde::Deserialize, strum::AsRefStr, PartialEq)]
+#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "lowercase")]
 pub enum ScriptExecutor {
+    #[strum(serialize = "sh")]
     Sh,
+    #[strum(serialize = "bash")]
+    Bash,
+    #[strum(serialize = "powershell")]
     Powershell,
 }
 
 impl Display for ScriptExecutor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ScriptExecutor::Sh => write!(f, "sh"),
-            ScriptExecutor::Powershell => write!(f, "powershell"),
-        }
+        write!(f, "{}", self.as_ref())
     }
 }
 
@@ -71,16 +74,8 @@ impl ScriptExecutor {
     pub fn prepare_clean(&self) -> Vec<u8> {
         match self {
             ScriptExecutor::Sh => b"\ntrap 'rm -f -- \"$0\"' EXIT;".to_vec(),
+            ScriptExecutor::Bash => b"\ntrap 'rm -f -- \"$0\"' EXIT;".to_vec(),
             ScriptExecutor::Powershell => b"\r\nRemove-Item $MyInvocation.MyCommand.Path".to_vec(),
-        }
-    }
-}
-
-impl AsRef<str> for ScriptExecutor {
-    fn as_ref(&self) -> &str {
-        match self {
-            ScriptExecutor::Sh => "sh",
-            ScriptExecutor::Powershell => "powershell",
         }
     }
 }
@@ -93,18 +88,18 @@ pub enum Script<'a, 'b> {
     },
     Script {
         executor: ScriptExecutor,
-        input: Box<dyn 'b + Iterator<Item = &'a str> + Send>,
+        input: &'a str,
     },
 }
 
 impl<'a, 'b> Script<'a, 'b> {
-    pub fn sh(input: Box<dyn 'b + Iterator<Item = &'a str> + Send>) -> Self {
+    pub fn sh(input: &'a str) -> Self {
         Script::Script {
             executor: ScriptExecutor::Sh,
             input,
         }
     }
-    pub fn powershell(input: Box<dyn 'b + Iterator<Item = &'a str> + Send>) -> Self {
+    pub fn powershell(input: &'a str) -> Self {
         Script::Script {
             executor: ScriptExecutor::Powershell,
             input,
@@ -125,12 +120,10 @@ impl<'a, 'b> Script<'a, 'b> {
             }
             Script::Script { executor, input } => {
                 let mut temp = match executor {
-                    ScriptExecutor::Sh => tempfile::NamedTempFile::new(),
+                    ScriptExecutor::Sh | ScriptExecutor::Bash => tempfile::NamedTempFile::new(),
                     ScriptExecutor::Powershell => tempfile::NamedTempFile::with_suffix(".ps1"),
                 }?;
-                for line in input {
-                    temp.write_all(line.as_bytes())?;
-                }
+                temp.write_all(input.as_bytes())?;
                 temp.write_all(executor.prepare_clean().as_slice())?;
                 let path = temp.into_temp_path().keep()?;
                 let mut cmd = Command::new(executor.as_ref());

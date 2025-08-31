@@ -47,6 +47,9 @@ macro_rules! generate_pm_structs {
     };
 }
 impl Pm {
+    const INSTALL: usize = 0;
+    const UPDATE: usize = 1;
+    const UPGRADE: usize = 2;
     generate_pm_structs! {
         apk {
             name = "apk",
@@ -142,17 +145,17 @@ impl Pm {
     pub async fn install(&self, ctx: &Context, uid: &str, packages: &str, y: bool) -> Result<bool> {
         info!("{} packages: {}", self.name, packages);
         let packages = packages.split_whitespace();
-        self.action(ctx, uid, 0, packages, y).await
+        self.action(ctx, uid, Pm::INSTALL, packages, y).await
     }
 
     pub async fn update(&self, ctx: &Context, uid: &str, confirm: bool) -> Result<bool> {
         info!("{} update", self.name);
-        self.action(ctx, uid, 1, std::iter::empty::<&str>(), confirm)
+        self.action(ctx, uid, Pm::UPDATE, std::iter::empty::<&str>(), confirm)
             .await
     }
     pub async fn upgrade(&self, ctx: &Context, uid: &str, packages: &str, y: bool) -> Result<bool> {
         info!("{} upgrade packages: {}", self.name, packages);
         let packages = packages.split_whitespace();
-        self.action(ctx, uid, 2, packages, y).await
+        self.action(ctx, uid, Pm::UPGRADE, packages, y).await
     }
 }

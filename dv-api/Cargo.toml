@@ -20,12 +20,12 @@ russh-config = { version = "0.54", git = "https://github.com/km0e/russh.git", br
 russh-sftp = "2.1"
 rustix = { version = "1.0", features = ["pty"] }
 strum = { version = "0.27", features = ["derive"] }
-tempfile = "3.20"
+tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 camino = { version = "1.1" }
-walkdir = "2.5.0"
+walkdir = "2.5"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.60", features = [

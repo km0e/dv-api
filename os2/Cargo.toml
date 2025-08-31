@@ -16,4 +16,4 @@ serde = ["dep:serde"]
 [dependencies]
 rune = { version = "0.14", optional = true }
 serde = { workspace = true, optional = true }
-strum = { version = "0.27", features = ["derive"] }
+strum.workspace = true

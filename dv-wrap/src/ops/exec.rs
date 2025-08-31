@@ -4,14 +4,21 @@ pub async fn exec(
     ctx: &Context,
     uid: impl AsRef<str>,
     script: impl AsRef<str>,
-    tty: bool,
+    reply: bool,
+    executor: Option<ScriptExecutor>,
 ) -> Result<bool> {
     let uid = uid.as_ref();
     let commands = script.as_ref();
     let user = ctx.get_user(uid)?;
     if !ctx.dry_run {
-        let script = Script::Whole(commands);
-        if tty {
+        let script = executor.map_or_else(
+            || Script::Whole(commands),
+            |executor| Script::Script {
+                executor,
+                input: commands,
+            },
+        );
+        if reply {
             let pp = user.pty(script, ctx.interactor.window_size().await).await?;
 
             let ec = ctx.interactor.ask(pp).await?;

@@ -295,9 +295,7 @@ pub fn openpty(window_size: WindowSize, command: Script<'_, '_>) -> std::io::Res
         Script::Script { executor, input } => {
             let mut program = abs_path(executor.as_ref())?;
             let mut tmp = tempfile::NamedTempFile::with_suffix(".ps1")?;
-            for line in input {
-                tmp.write_all(line.as_bytes())?;
-            }
+            tmp.write_all(input.as_bytes())?;
             tmp.write_all(
                 "\r\nRemove-Item $MyInvocation.MyCommand.Path\r\n"
                     .to_string()
