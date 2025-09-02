@@ -91,17 +91,37 @@ impl MultiCache {
             whatever!("invalid url: {}", url)
         };
         let mut req = reqwest::Request::new(reqwest::Method::GET, url2);
-        if let Some((version, _)) = &vl
-            && !version.is_empty()
-        {
-            debug!(
-                "Using cached version for url: {}, version: {}",
-                url, version
-            );
-            req.headers_mut().insert(
-                reqwest::header::IF_NONE_MATCH,
-                reqwest::header::HeaderValue::from_str(version).unwrap(),
-            );
+        match &vl {
+            Some((_, e)) if !e.is_empty() => {
+                debug!("Using cached version for url: {}, etag: {}", url, e);
+                req.headers_mut().insert(
+                    reqwest::header::IF_NONE_MATCH,
+                    reqwest::header::HeaderValue::from_str(e).unwrap(),
+                );
+            }
+            Some((t, _)) => {
+                if let Ok(t) = t.parse::<u64>()
+                    && std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("Time went backwards")
+                        .as_secs()
+                        .saturating_sub(t)
+                        < 60 * 60 * 24 * 7
+                {
+                    debug!("Using cached version for url: {}, time: {}", url, t);
+                    let Some(dir) = self.dir.as_ref() else {
+                        whatever!(
+                            "no dir set for caching, but got cached time for url: {}",
+                            url
+                        )
+                    };
+                    let path = dir.join(&name);
+                    if path.exists() {
+                        return Ok(tokio::fs::read_to_string(&path).await?);
+                    }
+                }
+            }
+            _ => {}
         }
         let client = reqwest::Client::new();
         let Ok(resp) = client.execute(req).await else {
@@ -117,27 +137,32 @@ impl MultiCache {
             let Ok(text) = resp.text().await else {
                 whatever!("failed to read response text from url: {}", url)
             };
-            if text.len() < 1024 * 1024 {
-                self.set(&name, "", &etag, &text).await?;
-            } else if let Some(dir) = self.dir.as_ref() {
-                let path = dir.join(&name);
-                tokio::fs::create_dir_all(&path.parent().unwrap()).await?;
-                tokio::fs::write(&path, text.as_bytes()).await?;
-                self.set(&name, "", &etag, "").await?;
-            }
+            let Some(dir) = self.dir.as_ref() else {
+                whatever!("no dir set for caching, but got 200 for url: {}", url)
+            };
+            let path = dir.join(&name);
+            tokio::fs::create_dir_all(&path.parent().unwrap()).await?;
+            tokio::fs::write(&path, text.as_bytes()).await?;
+            let t = std::fs::metadata(&path)?
+                .modified()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_else(|_| {
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("Time went backwards")
+                })
+                .as_secs()
+                .to_string();
+            self.set(&name, "", &t, &etag).await?;
             Ok(text)
         } else if resp.status().as_u16() == 304 {
             info!("Cached response for url: {}", url);
-            let content = vl.unwrap().1;
-            if content.is_empty() {
-                let Some(dir) = self.dir.as_ref() else {
-                    whatever!("no dir set for caching, but got 304 for url: {}", url)
-                };
-                let path = dir.join(&name);
-                Ok(tokio::fs::read_to_string(&path).await?)
-            } else {
-                Ok(content)
-            }
+            let Some(dir) = self.dir.as_ref() else {
+                //TODO:maybe try to fetch again?
+                whatever!("no dir set for caching, but got 304 for url: {}", url)
+            };
+            let path = dir.join(&name);
+            Ok(tokio::fs::read_to_string(&path).await?)
         } else {
             whatever!("failed to fetch url: {}, status: {}", url, resp.status())
         }

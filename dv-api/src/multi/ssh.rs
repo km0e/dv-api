@@ -1,16 +1,8 @@
-use std::borrow::Cow;
-
-use crate::whatever;
-
 use super::dev::{self, *};
-use e4pty::prelude::{BoxedPty, Script, WindowSize};
 use russh::client;
-use russh_sftp::{
-    client::SftpSession,
-    protocol::{FileAttributes, StatusCode},
-};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tracing::{debug, info, warn};
+use russh_sftp::{client::SftpSession, protocol::StatusCode};
+use tracing::{info, warn};
+
 mod config;
 pub use config::create;
 mod file;
@@ -83,6 +75,7 @@ impl SSHSession {
                         )
                         .await;
                     if let Ok(mut file) = res {
+                        use tokio::io::AsyncWriteExt;
                         file.write_all(&executor.prepare_clean()).await?;
                         file.write_all(input.as_bytes()).await?;
                         break;
@@ -168,6 +161,7 @@ impl UserImpl for SSHSession {
         channel.exec(true, cmd).await?;
         let mut pty = channel.into_pty();
         let mut stdout = Vec::new();
+        use tokio::io::AsyncReadExt;
         pty.reader.read_to_end(&mut stdout).await?;
         let code = pty.ctl.wait().await?;
         debug!("exec done");
@@ -218,7 +212,7 @@ impl UserImpl for SSHSession {
     ) -> Result<BoxedFile> {
         let path2 = self.canonicalize(path)?;
         let path = path2.as_ref();
-
+        trace!("open: {}, flags: {:?}", path, flags);
         let open_flags = flags.into();
         let file = loop {
             match self
@@ -228,7 +222,8 @@ impl UserImpl for SSHSession {
             {
                 Ok(file) => break Ok(file),
                 Err(russh_sftp::client::error::Error::Status(s))
-                    if s.status_code == StatusCode::NoSuchFile =>
+                    if s.status_code == StatusCode::NoSuchFile
+                        && flags.contains(OpenFlags::CREATE) =>
                 {
                     self.create_parent(path).await?;
                 }

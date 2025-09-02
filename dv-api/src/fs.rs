@@ -1,5 +1,3 @@
-use crate::util::*;
-
 pub use camino::{Utf8Path as U8Path, Utf8PathBuf as U8PathBuf};
 pub use russh_sftp::protocol::FileAttributes;
 
@@ -35,6 +33,6 @@ bitflags::bitflags! {
     }
 }
 
-pub trait FileImpl: AsyncStream {}
+pub trait FileImpl: tokio::io::AsyncRead + tokio::io::AsyncWrite {}
 
 pub type BoxedFile = Box<dyn FileImpl + Unpin + Send>;

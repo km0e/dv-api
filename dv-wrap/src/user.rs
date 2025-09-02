@@ -132,17 +132,17 @@ impl User {
     pub async fn exec(&self, s: Script<'_, '_>) -> dv_api::Result<Output> {
         self.inner.exec(s).await
     }
-    pub async fn open(&self, path: &U8Path, opt: OpenFlags) -> Result<BoxedFile> {
+    pub async fn open<P: AsRef<U8Path>>(&self, path: P, opt: OpenFlags) -> Result<BoxedFile> {
         self.open_with_attr(path, opt, FileAttributes::default())
             .await
     }
-    pub async fn open_with_attr(
+    pub async fn open_with_attr<P: AsRef<U8Path>>(
         &self,
-        path: &U8Path,
+        path: P,
         flags: OpenFlags,
         attr: FileAttributes,
     ) -> Result<BoxedFile> {
-        let path = self.normalize(path)?;
+        let path = self.normalize(path.as_ref())?;
         Ok(self.inner.open(path.as_ref(), flags, attr).await?)
     }
 }

@@ -1,13 +1,5 @@
-use crate::{fs::Metadata, whatever};
-
 use super::dev::{self, *};
-use russh_sftp::protocol::FileAttributes;
-
-use std::{
-    borrow::Cow,
-    path::{Path, PathBuf},
-};
-use tracing::{debug, trace};
+use std::path::{Path, PathBuf};
 
 mod config;
 pub use config::create;

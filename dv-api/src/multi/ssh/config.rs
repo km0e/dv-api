@@ -3,9 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use os2::Os;
 use russh::client::{self, AuthResult, Handle};
 use tokio::io::AsyncReadExt;
-use tracing::{debug, info, warn};
-
-use crate::whatever;
+use tracing::{info, warn};
 
 use super::{Client, SSHSession, dev::*};
 

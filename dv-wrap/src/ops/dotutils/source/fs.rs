@@ -1,4 +1,6 @@
 use dv_api::whatever;
+use tracing::debug;
+use tracing::warn;
 
 use super::dev::*;
 
@@ -45,11 +47,13 @@ impl SourceAction for Op<'_> {
                 continue;
             };
             let src_path = self.path.join(cfg);
-            if copy_ctx.src.exist(&src_path).await? {
+            if !copy_ctx.src.exist(&src_path).await? {
+                warn!("source path not exist: {}", src_path);
                 break;
             }
             let mut success = false;
             for dst_path in dst_cfg {
+                debug!("try to sync {} to {}", src_path, dst_path);
                 if copy_ctx.sync(&src_path, &dst_path).await.is_ok() {
                     success = true;
                     break;

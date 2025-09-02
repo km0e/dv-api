@@ -15,6 +15,8 @@ mod once;
 pub use once::Once;
 mod refresh;
 pub use refresh::refresh;
+mod fs;
+pub use fs::*;
 
 mod dotutils;
 pub use dotutils::*;

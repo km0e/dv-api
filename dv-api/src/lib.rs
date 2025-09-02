@@ -6,6 +6,5 @@ pub mod process;
 
 pub mod core;
 pub use core::BoxedUser;
-pub mod util;
 
 pub mod multi;

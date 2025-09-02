@@ -49,7 +49,7 @@ impl DotUtil {
             content = ctx.cache.cache_url(path).await?;
         } else {
             let user = ctx.get_user(user)?;
-            let mut file = user.open(path.into(), OpenFlags::READ).await?;
+            let mut file = user.open(path, OpenFlags::READ).await?;
             file.read_to_string(&mut content).await?;
         }
         let schema: SerdeSchemaStorage = toml::from_str(&content)?;
@@ -65,7 +65,7 @@ impl DotUtil {
         file.read_to_string(&mut content).await?;
         let schema: SerdeSourceStorage = toml::from_str(&content)?;
         for (name, schema) in &schema.schema {
-            trace!("schema {}: {:?}", name, schema);
+            trace!("source {}: {:?}", name, schema);
         }
         self.source.insert(
             schema.name.clone(),
