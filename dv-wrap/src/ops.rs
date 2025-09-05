@@ -17,6 +17,8 @@ mod refresh;
 pub use refresh::refresh;
 mod fs;
 pub use fs::*;
+mod dl;
+pub use dl::dl;
 
 mod dotutils;
 pub use dotutils::*;

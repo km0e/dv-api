@@ -115,7 +115,7 @@ mod tests {
         let schema = r#"
         name = "default"
 
-        [schemas.fish.linux.paths]
+        [schema.fish.linux.paths]
         default = ["~/.config/fish"]
         "#;
         let storage: SerdeSchemaStorage = toml::from_str(schema).unwrap();

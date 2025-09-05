@@ -20,7 +20,7 @@ impl SqliteCache {
                 key TEXT NOT NULL,
                 version TEXT NOT NULL,
                 latest TEXT NOT NULL,
-                PRIMARY KEY (device, path)
+                PRIMARY KEY (device, key)
             )",
             [],
         )
@@ -38,7 +38,7 @@ impl SqliteCache {
                 key TEXT NOT NULL,
                 version TEXT NOT NULL,
                 latest TEXT NOT NULL,
-                PRIMARY KEY (device, path)
+                PRIMARY KEY (device, key)
             )",
             [],
         )

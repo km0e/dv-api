@@ -24,6 +24,8 @@ pub mod error {
         IO(#[from] std::io::Error),
         #[error("toml error: {0}")]
         Toml(#[from] toml::de::Error),
+        #[error("reqwest error: {0}")]
+        Reqwest(#[from] reqwest::Error),
         #[error("unknown error: {0}")]
         Unknown(String),
     }

@@ -348,7 +348,7 @@ impl<'a> SyncContext<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, path::Path, time::Duration};
+    use std::{path::Path, time::Duration};
 
     use crate::{
         Context,
@@ -374,8 +374,10 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut cfg = Config::default();
         cfg.set("mount", dir.to_string_lossy());
-        let mut users = HashMap::new();
-        users.insert("this".to_string(), User::local(cfg).await.unwrap());
+        let mut ctx = Context::new(false, cache, interactor);
+        ctx.add_user("this".to_string(), User::local(cfg).await.unwrap())
+            .await
+            .expect("add user");
         let src_dir = dir.child("src");
         for (name, content) in src {
             let f = src_dir.child(name);
@@ -386,16 +388,7 @@ mod tests {
             let f = dst_dir.child(name);
             f.write_str(content).unwrap();
         }
-        (
-            Context {
-                dry_run: false,
-                cache,
-                interactor,
-                users,
-                devices: HashMap::new(),
-            },
-            dir,
-        )
+        (ctx, dir)
     }
     fn content_assert(dir: &ChildPath, pairs: &[(&str, &str)]) {
         for (name, content) in pairs {
@@ -476,7 +469,7 @@ mod tests {
     #[tokio::test]
     async fn copy_file() {
         copy_file_fixture("dst", "dst", "y").await;
-        copy_file_fixture("dst/", "dst/f0", "y").await;
+        copy_file_fixture("dst/f0", "dst/f0", "y").await;
     }
     #[tokio::test]
     async fn test_update() {

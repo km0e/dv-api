@@ -1,5 +1,5 @@
 use super::dev::*;
-use crate::{DeviceInfo, cache::MultiCache, interactor::TermInteractor};
+use crate::{DeviceInfo, cache::MultiCache};
 use dv_api::whatever;
 use std::collections::HashMap;
 
@@ -23,23 +23,26 @@ impl Device {
 pub struct Context {
     pub dry_run: bool,
     pub cache: MultiCache,
-    pub interactor: TermInteractor,
+    pub interactor: Box<dyn Interactor + Sync>,
     pub users: HashMap<String, User>,
     pub devices: HashMap<String, Device>,
+    pub cache_dir: Option<std::path::PathBuf>,
 }
 
 impl Context {
-    pub fn new(dry_run: bool, mut cache: MultiCache, interactor: TermInteractor) -> Self {
+    pub fn new(
+        dry_run: bool,
+        cache: MultiCache,
+        interactor: impl Interactor + Sync + 'static,
+    ) -> Self {
         let dir = directories::ProjectDirs::from("com", "dv", "dv");
-        if let Some(dir) = &dir {
-            cache.set_dir(dir.cache_dir().to_path_buf());
-        }
         Self {
             dry_run,
             cache,
-            interactor,
+            interactor: Box::new(interactor),
             users: HashMap::new(),
             devices: HashMap::new(),
+            cache_dir: dir.map(|d| d.cache_dir().to_path_buf()),
         }
     }
     pub fn contains_user(&self, uid: impl AsRef<str>) -> bool {

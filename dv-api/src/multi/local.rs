@@ -146,8 +146,7 @@ impl UserImpl for This {
                 }
                 Err(e) => break Err(e),
             }
-        };
-        let file = file?;
+        }?;
         Ok(Box::new(file))
     }
 }

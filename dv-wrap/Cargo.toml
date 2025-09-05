@@ -1,6 +1,6 @@
 [package]
 name = "dv-wrap"
-version = "0.1.0"
+version = "0.1.1"
 description = "a set of basic tools for controlling device with dv-api"
 homepage = "https://blog.101248.xyz/zh/dv4rune"
 edition.workspace = true
@@ -38,7 +38,7 @@ tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = [
+windows = { version = "0.62", features = [
     "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_System_Console",

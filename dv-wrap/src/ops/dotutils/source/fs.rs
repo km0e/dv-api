@@ -1,11 +1,9 @@
 use dv_api::whatever;
-use tracing::debug;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use super::dev::*;
 
-use super::Source;
-use super::SourceAction;
+use super::{Source, SourceAction};
 
 pub struct FileSystemSource {
     pub user: String,
@@ -78,13 +76,22 @@ impl SourceAction for Op<'_> {
                 continue;
             };
             let dst_path = self.path.join(dst_cfg);
+            let mut eq = Vec::new();
             for src_path in cfg {
                 let sp = src_path.as_ref();
-                if copy_ctx.src.exist(sp).await.is_ok_and(|exists| exists)
-                    && !copy_ctx.sync(&sp, &dst_path).await?
-                {
-                    whatever!("failed to upload {} to {}", dst_path, sp);
+                if copy_ctx.src.exist(sp).await.is_ok_and(|exists| exists) {
+                    let Err(e) = copy_ctx.sync(&sp, &dst_path).await else {
+                        break;
+                    };
+                    eq.push((sp.to_string(), e));
                 }
+            }
+            if eq.len() == cfg.len() {
+                whatever!(
+                    "all source paths failed to upload to {}: {:?}",
+                    dst_path,
+                    eq
+                )
             }
         }
         Ok(())
