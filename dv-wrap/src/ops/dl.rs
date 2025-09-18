@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use reqwest::header;
 use tracing::{debug, info};
 
 use super::dev::*;
@@ -15,39 +16,35 @@ pub async fn dl(ctx: &Context, url: impl AsRef<str>, expire: Option<u64>) -> Res
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("Time went backwards")
-        .as_secs()
-        .to_string();
+        .as_secs();
 
     use base64::Engine;
     let name = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(url);
     let path = cdir.join(&name).to_string_lossy().to_string();
     let vl = ctx.cache.get(&name, "").await?;
     if let Some((version, _)) = &vl
-        && let Ok(t) = version.parse::<u64>()
-        && let Some(expire) = expire
+        && let (Ok(t), Some(expire)) = (version.parse::<u64>(), expire)
+        && now - t < expire
     {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_secs();
-        if now - t < expire {
-            return Ok(path);
-        }
+        info!("cache hit for url: {}", url);
+        return Ok(path);
     }
 
     let mut req = reqwest::Request::new(reqwest::Method::GET, url2);
     req.headers_mut().insert(
-        reqwest::header::USER_AGENT,
-        reqwest::header::HeaderValue::from_static("dv-wrap/0.1"),
+        header::USER_AGENT,
+        header::HeaderValue::from_static("dv-wrap/0.1"),
     );
 
     if let Some((_, e)) = &vl {
         req.headers_mut().insert(
-            reqwest::header::IF_NONE_MATCH,
-            reqwest::header::HeaderValue::from_str(e).unwrap(),
+            header::IF_NONE_MATCH,
+            header::HeaderValue::from_str(e).unwrap(),
         );
     }
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()?;
     if ctx.dry_run {
         return Ok(path);
     }
@@ -57,7 +54,7 @@ pub async fn dl(ctx: &Context, url: impl AsRef<str>, expire: Option<u64>) -> Res
     if resp.status().is_success() {
         let etag = resp
             .headers()
-            .get(reqwest::header::ETAG)
+            .get(header::ETAG)
             .and_then(|v| v.to_str().ok())
             .unwrap_or_default()
             .to_string();
@@ -78,9 +75,11 @@ pub async fn dl(ctx: &Context, url: impl AsRef<str>, expire: Option<u64>) -> Res
         while let Some(chunk) = resp.chunk().await? {
             tokio::io::copy(&mut chunk.as_ref(), &mut file).await?;
         }
-        ctx.cache.set(&name, "", &now, &etag).await?;
+        ctx.cache.set(&name, "", &now.to_string(), &etag).await?;
     } else if resp.status().as_u16() == 304 {
-        info!("Cached response for url: {}", url);
+        ctx.cache
+            .set(&name, "", &now.to_string(), &vl.unwrap().1)
+            .await?;
     } else {
         whatever!("failed to fetch url: {}, status: {}", url, resp.status())
     }

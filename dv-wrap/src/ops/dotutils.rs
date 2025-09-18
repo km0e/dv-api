@@ -45,13 +45,9 @@ impl DotUtil {
     }
     pub async fn add_schema(&mut self, ctx: &Context, user: &str, path: &str) -> Result<()> {
         let mut content = String::new();
-        if user == "__network__" {
-            content = ctx.cache.cache_url(path).await?;
-        } else {
-            let user = ctx.get_user(user)?;
-            let mut file = user.open(path, OpenFlags::READ).await?;
-            file.read_to_string(&mut content).await?;
-        }
+        let user = ctx.get_user(user)?;
+        let mut file = user.open(path, OpenFlags::READ).await?;
+        file.read_to_string(&mut content).await?;
         let schema: SerdeSchemaStorage = toml::from_str(&content)?;
         self.schema
             .insert(schema.name.clone(), schema.into_schema_storage());

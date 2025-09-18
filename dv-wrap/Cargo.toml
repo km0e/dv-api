@@ -1,6 +1,6 @@
 [package]
 name = "dv-wrap"
-version = "0.1.1"
+version = "0.1.2"
 description = "a set of basic tools for controlling device with dv-api"
 homepage = "https://blog.101248.xyz/zh/dv4rune"
 edition.workspace = true
@@ -27,7 +27,7 @@ reqwest = { version = "0.12", default-features = false, features = [
     "system-proxy",
 ] }
 rusqlite = { version = "0.37", features = ["bundled"] }
-rustix = { version = "1.0", features = ["pty", "fs"] }
+rustix = { version = "1.1", features = ["pty", "fs"] }
 serde.workspace = true
 strum = { version = "0.27", features = ["derive"] }
 tempfile.workspace = true

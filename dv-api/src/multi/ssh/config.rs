@@ -57,7 +57,7 @@ async fn connect_impl(
     } else {
         client::connect(
             Arc::new(client::Config::default()),
-            (cfg.host_name.clone(), cfg.port),
+            (cfg.host_name.as_str(), cfg.port),
             Client {},
         )
         .await?

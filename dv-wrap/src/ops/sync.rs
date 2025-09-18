@@ -80,9 +80,9 @@ impl<'a> SyncContext<'a> {
         }
         if let Some(update) = update {
             if update.is_empty() {
-                opts.push("y");
+                opts.push("u");
             } else {
-                storage.push(format!("y/{update}"));
+                storage.push(format!("u/{update}"));
             }
         }
         opts.extend(storage.iter().map(String::as_str));
@@ -125,6 +125,9 @@ impl<'a> SyncContext<'a> {
             .await?;
         if let Some(rev) = if !self.dry_run { res } else { None } {
             if !rev {
+                self.cache.del(self.duid, dm.path.as_str()).await?;
+                self.dst.rm(&dm.path).await?;
+            } else {
                 try_copy(self.dst, &dm.path, self.src, sp).await?;
                 let dst_ts = match dm.attr.mtime {
                     Some(ts) => Some(ts as i64),
@@ -132,9 +135,6 @@ impl<'a> SyncContext<'a> {
                 };
                 self.update_cache(sp, &dm.path, self.src.get_mtime(sp).await?, dst_ts)
                     .await?;
-            } else {
-                self.cache.del(self.duid, dm.path.as_str()).await?;
-                self.dst.rm(&dm.path).await?;
             }
         }
         match res {

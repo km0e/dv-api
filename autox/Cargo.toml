@@ -12,7 +12,7 @@ thiserror = "2.0"
 
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = [
+windows = { version = "0.62", features = [
     "Win32_System_SystemServices",
     "Win32_System_Services",
     "Win32_System_SystemInformation",
@@ -21,4 +21,4 @@ scopeguard = "1.2"
 
 
 [target.'cfg(not(windows))'.dependencies]
-zbus = "5.9"
+zbus = "5.11"

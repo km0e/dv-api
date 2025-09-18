@@ -45,8 +45,12 @@ impl Context {
             cache_dir: dir.map(|d| d.cache_dir().to_path_buf()),
         }
     }
-    pub fn contains_user(&self, uid: impl AsRef<str>) -> bool {
-        self.users.contains_key(uid.as_ref())
+    pub fn contains_user<Q>(&self, uid: &Q) -> bool
+    where
+        String: std::borrow::Borrow<Q>,
+        Q: ?Sized + std::hash::Hash + Eq,
+    {
+        self.users.contains_key(uid)
     }
     pub fn get_user(&self, uid: impl AsRef<str>) -> Result<&User> {
         let uid = uid.as_ref();
