@@ -21,12 +21,21 @@ pub async fn dl(ctx: &Context, url: impl AsRef<str>, expire: Option<u64>) -> Res
     use base64::Engine;
     let name = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(url);
     let path = cdir.join(&name).to_string_lossy().to_string();
-    let vl = ctx.cache.get(&name, "").await?;
-    if let Some((version, _)) = &vl
+    let vl = ctx.db.get(&name, "").await?;
+    let exsists = match tokio::fs::metadata(&path).await {
+        Ok(m) if m.is_file() => true,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+        Err(e) => Err(e)?, // other error
+        _ => {
+            whatever!("cache file {} exists but not a file", path)
+        }
+    };
+    if exsists
+        && let Some((version, _)) = &vl
         && let (Ok(t), Some(expire)) = (version.parse::<u64>(), expire)
         && now - t < expire
     {
-        info!("cache hit for url: {}", url);
+        info!("cache hit {path} for url: {url}");
         return Ok(path);
     }
 
@@ -36,7 +45,7 @@ pub async fn dl(ctx: &Context, url: impl AsRef<str>, expire: Option<u64>) -> Res
         header::HeaderValue::from_static("dv-wrap/0.1"),
     );
 
-    if let Some((_, e)) = &vl {
+    if exsists && let Some((_, e)) = &vl {
         req.headers_mut().insert(
             header::IF_NONE_MATCH,
             header::HeaderValue::from_str(e).unwrap(),
@@ -46,7 +55,11 @@ pub async fn dl(ctx: &Context, url: impl AsRef<str>, expire: Option<u64>) -> Res
         .timeout(std::time::Duration::from_secs(5))
         .build()?;
     if ctx.dry_run {
-        return Ok(path);
+        if exsists {
+            return Ok(path);
+        } else {
+            whatever!("{} not exists, cannot dry-run download", path)
+        }
     }
     let Ok(mut resp) = client.execute(req).await else {
         whatever!("failed to fetch url: {}", url)
@@ -75,9 +88,11 @@ pub async fn dl(ctx: &Context, url: impl AsRef<str>, expire: Option<u64>) -> Res
         while let Some(chunk) = resp.chunk().await? {
             tokio::io::copy(&mut chunk.as_ref(), &mut file).await?;
         }
-        ctx.cache.set(&name, "", &now.to_string(), &etag).await?;
+        debug!("downloaded {} to {}", url, path);
+        ctx.db.set(&name, "", &now.to_string(), &etag).await?;
     } else if resp.status().as_u16() == 304 {
-        ctx.cache
+        debug!("{} not modified in server, use cache {}", url, path);
+        ctx.db
             .set(&name, "", &now.to_string(), &vl.unwrap().1)
             .await?;
     } else {

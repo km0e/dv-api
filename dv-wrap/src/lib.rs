@@ -1,5 +1,5 @@
-mod cache;
-pub use cache::{MultiCache, SqliteCache};
+mod db;
+pub use db::{MultiDB, Sqlite};
 
 mod context;
 pub use context::Context;

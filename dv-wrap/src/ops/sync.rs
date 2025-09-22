@@ -40,7 +40,10 @@ impl<'a> SyncContext<'a> {
     ) -> Result<Self> {
         let src = ctx.get_user(src_uid)?;
         let dst = ctx.get_user(dst_uid)?;
-        if opt.is_some_and(|o| !o.chars().all(|c| c == 'y' || c == 'n' || c == 'u')) {
+        if opt.is_some_and(|o| {
+            !o.chars()
+                .all(|c| c == 'y' || c == 'n' || c == 'u' || c == 'd')
+        }) {
             opt = None;
         }
         Ok(Self {
@@ -52,17 +55,20 @@ impl<'a> SyncContext<'a> {
             opt: opt.unwrap_or(""),
         })
     }
+
     async fn select(
         &self,
         sp: &U8Path,
         dp: &U8Path,
-        overwrite: Option<&str>,
-        update: Option<&str>,
+        overwrite: bool,
+        delete: bool,
+        update: bool,
     ) -> Result<Option<bool>> {
         for opt in self.opt.chars() {
             match opt {
-                'y' if overwrite.is_some() => return Ok(Some(false)),
-                'u' if update.is_some() => return Ok(Some(true)),
+                'y' if overwrite => return Ok(Some(false)),
+                'd' if delete => return Ok(Some(false)),
+                'u' if update => return Ok(Some(true)),
                 'n' => return Ok(None),
                 _ => continue,
             }
@@ -70,22 +76,15 @@ impl<'a> SyncContext<'a> {
         let mut hint = String::new();
         let mut opts = Vec::new();
         write!(&mut hint, "{}:{sp} -> {}:{dp}", self.suid, self.duid).unwrap();
-        let mut storage = Vec::new();
-        if let Some(overwrite) = overwrite {
-            if overwrite.is_empty() {
-                opts.push("y");
-            } else {
-                storage.push(format!("y/{overwrite}"));
-            }
+        if overwrite {
+            opts.push("y/overwrite");
         }
-        if let Some(update) = update {
-            if update.is_empty() {
-                opts.push("u");
-            } else {
-                storage.push(format!("u/{update}"));
-            }
+        if delete {
+            opts.push("d/delete");
         }
-        opts.extend(storage.iter().map(String::as_str));
+        if update {
+            opts.push("u/update");
+        }
         opts.push("n/skip");
         let sel = self.interactor.confirm(hint, &opts).await?;
         Ok(match opts[sel].chars().nth(0) {
@@ -96,7 +95,7 @@ impl<'a> SyncContext<'a> {
         })
     }
 
-    async fn update_cache(
+    async fn update_db(
         &self,
         sp: &U8Path,
         dp: &U8Path,
@@ -109,7 +108,7 @@ impl<'a> SyncContext<'a> {
         let Some(dst_ts) = dst_ts else {
             whatever!("get {} mtime failed", dp)
         };
-        self.cache
+        self.db
             .set(
                 self.duid,
                 dp.as_str(),
@@ -120,12 +119,10 @@ impl<'a> SyncContext<'a> {
         Ok(())
     }
     async fn rm(&self, sp: &U8Path, dm: &Metadata) -> Result<bool> {
-        let res = self
-            .select(sp, &dm.path, Some("rm"), Some("download"))
-            .await?;
+        let res = self.select(sp, &dm.path, false, true, true).await?;
         if let Some(rev) = if !self.dry_run { res } else { None } {
             if !rev {
-                self.cache.del(self.duid, dm.path.as_str()).await?;
+                self.db.del(self.duid, dm.path.as_str()).await?;
                 self.dst.rm(&dm.path).await?;
             } else {
                 try_copy(self.dst, &dm.path, self.src, sp).await?;
@@ -133,7 +130,7 @@ impl<'a> SyncContext<'a> {
                     Some(ts) => Some(ts as i64),
                     None => self.dst.get_mtime(&dm.path).await?,
                 };
-                self.update_cache(sp, &dm.path, self.src.get_mtime(sp).await?, dst_ts)
+                self.update_db(sp, &dm.path, self.src.get_mtime(sp).await?, dst_ts)
                     .await?;
             }
         }
@@ -178,24 +175,18 @@ impl<'a> SyncContext<'a> {
             Some(false)
         } else {
             'check_opt: {
-                let cache = self.ctx.cache.get_as::<i64>(self.duid, dp.as_str()).await?;
-                debug!("check {}:{} cache: {:?}", self.duid, dp, cache);
+                let db = self.ctx.db.get_as::<i64>(self.duid, dp.as_str()).await?;
+                debug!("check {}:{} db: {:?}", self.duid, dp, db);
                 let overwrite = sa.mtime.is_some_and(|mt| {
-                    cache.is_none_or(|(ver, _)| ver != mt as i64) || dst_mtime.is_none()
+                    db.is_none_or(|(ver, _)| ver != mt as i64) || dst_mtime.is_none()
                 });
                 let update = dst_mtime.is_some_and(|mt| {
-                    cache.is_none_or(|(_, old)| old != mt as i64) || sa.mtime.is_none()
+                    db.is_none_or(|(_, old)| old != mt as i64) || sa.mtime.is_none()
                 });
                 if !overwrite && !update {
                     break 'check_opt None;
                 }
-                self.select(
-                    sp,
-                    dp,
-                    overwrite.then_some("overwrite"),
-                    update.then_some("update"),
-                )
-                .await?
+                self.select(sp, dp, overwrite, false, update).await?
             }
         };
 
@@ -215,7 +206,7 @@ impl<'a> SyncContext<'a> {
                 };
                 (self.src.get_mtime(sp).await?, dst_ts)
             };
-            self.update_cache(sp, dp, src_ts, dst_ts).await?;
+            self.update_db(sp, dp, src_ts, dst_ts).await?;
         }
         let update = res.is_some_and(|do_| do_);
         action!(
@@ -352,7 +343,7 @@ mod tests {
 
     use crate::{
         Context,
-        cache::{MultiCache, SqliteCache},
+        db::{MultiDB, Sqlite},
         dev::User,
         interactor::TermInteractor,
     };
@@ -369,12 +360,12 @@ mod tests {
     /// - `dst`: list of (name, content) pairs to create in the destination directory
     async fn tenv(src: &[(&str, &str)], dst: &[(&str, &str)]) -> (Context, TempDir) {
         let interactor = TermInteractor::new().unwrap();
-        let mut cache = MultiCache::default();
-        cache.add_cache(SqliteCache::memory());
+        let mut db = MultiDB::default();
+        db.add_db(Sqlite::memory());
         let dir = TempDir::new().unwrap();
         let mut cfg = Config::default();
         cfg.set("mount", dir.to_string_lossy());
-        let mut ctx = Context::new(false, cache, interactor);
+        let mut ctx = Context::new(false, db, None, interactor);
         ctx.add_user("this".to_string(), User::local(cfg).await.unwrap())
             .await
             .expect("add user");
@@ -395,7 +386,7 @@ mod tests {
             dir.child(name).assert(*content);
         }
     }
-    async fn cache_assert(cache: &MultiCache, src: &Path, dst: &Path) {
+    async fn db_assert(db: &MultiDB, src: &Path, dst: &Path) {
         let src_meta = src.metadata().unwrap();
         let dst_meta = dst.metadata().unwrap();
         let mtime = {
@@ -415,8 +406,7 @@ mod tests {
         };
         assert_eq!(
             mtime,
-            cache
-                .get_as::<i64>("this", dst.to_str().unwrap())
+            db.get_as::<i64>("this", dst.to_str().unwrap())
                 .await
                 .unwrap()
                 .unwrap(),
@@ -424,9 +414,9 @@ mod tests {
             dst.display()
         );
     }
-    async fn cache_assert2(cache: &MultiCache, src: ChildPath, dst: ChildPath, subpaths: &[&str]) {
+    async fn db_assert2(db: &MultiDB, src: ChildPath, dst: ChildPath, subpaths: &[&str]) {
         for subpath in subpaths {
-            cache_assert(cache, src.child(subpath).path(), dst.child(subpath).path()).await;
+            db_assert(db, src.child(subpath).path(), dst.child(subpath).path()).await;
         }
     }
     async fn copy_dir_fixture(src: &str, dst: &str) {
@@ -434,13 +424,7 @@ mod tests {
         let ctx = SyncContext::new(&ctx, "this", "this", Some("y")).unwrap();
         assert!(ctx.sync(src, dst).await.unwrap(), "copy should success");
         content_assert(&dir.child("dst"), &[("f0", "f0"), ("f1", "f1")]);
-        cache_assert2(
-            &ctx.cache,
-            dir.child("src"),
-            dir.child("dst"),
-            &["f0", "f1"],
-        )
-        .await;
+        db_assert2(&ctx.db, dir.child("src"), dir.child("dst"), &["f0", "f1"]).await;
     }
 
     /// Test operation of copy("src/f0", `dst`) will generate `expect`
@@ -452,8 +436,8 @@ mod tests {
             "copy should success"
         );
         dir.child(expect).assert("f0");
-        cache_assert(
-            &ctx.cache,
+        db_assert(
+            &ctx.db,
             dir.child("src/f0").path(),
             dir.child(expect).path(),
         )
@@ -487,8 +471,8 @@ mod tests {
         let dst = dir.child("dst");
         dst.child("f0").assert("f0");
         dst.child("f1").assert("f1");
-        cache_assert(&ctx.cache, src.child("f0").path(), dst.child("f0").path()).await;
-        cache_assert(&ctx.cache, src.child("f1").path(), dst.child("f1").path()).await;
+        db_assert(&ctx.db, src.child("f0").path(), dst.child("f0").path()).await;
+        db_assert(&ctx.db, src.child("f1").path(), dst.child("f1").path()).await;
     }
     #[tokio::test]
     async fn test_donothing() {
@@ -506,14 +490,14 @@ mod tests {
         );
         src.child("f0").assert("f0");
         src.child("f1").assert("f1");
-        cache_assert(
-            &ctx.cache,
+        db_assert(
+            &ctx.db,
             dir.child("src/f0").path(),
             dir.child("dst/f0").path(),
         )
         .await;
-        cache_assert(
-            &ctx.cache,
+        db_assert(
+            &ctx.db,
             dir.child("src/f1").path(),
             dir.child("dst/f1").path(),
         )

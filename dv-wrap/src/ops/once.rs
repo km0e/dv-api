@@ -11,11 +11,11 @@ impl<'a, 'b> Once<'a, 'b> {
         Self { ctx, id, key }
     }
     pub async fn test(&self) -> Result<bool> {
-        Ok(self.ctx.cache.get(self.id, self.key).await?.is_none())
+        Ok(self.ctx.db.get(self.id, self.key).await?.is_none())
     }
     pub async fn set(&self) -> Result<()> {
         if !self.ctx.dry_run {
-            self.ctx.cache.set(self.id, self.key, "", "").await?;
+            self.ctx.db.set(self.id, self.key, "", "").await?;
             action!(self.ctx, true, "once {} {}", self.id, self.key);
         }
         Ok(())

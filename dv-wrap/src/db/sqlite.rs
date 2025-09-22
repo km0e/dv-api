@@ -5,11 +5,11 @@ use tracing::{debug, info};
 use crate::error::{Error, Result};
 
 #[derive(Debug)]
-pub struct SqliteCache {
+pub struct Sqlite {
     conn: Mutex<rusqlite::Connection>,
 }
 
-impl SqliteCache {
+impl Sqlite {
     pub fn new(db_path: impl AsRef<Path>) -> Self {
         let db_path = db_path.as_ref();
         info!("use sqlite path {}", db_path.display());
@@ -50,7 +50,7 @@ impl SqliteCache {
 }
 
 #[async_trait::async_trait]
-impl super::Cache for SqliteCache {
+impl crate::db::DB for Sqlite {
     async fn get(&self, uid: &str, key: &str) -> Result<Option<(String, String)>> {
         let row = self.conn.lock().await.query_row(
             "SELECT version, latest FROM cache WHERE device = ? AND key = ?",

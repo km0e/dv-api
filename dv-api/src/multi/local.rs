@@ -135,11 +135,13 @@ impl UserImpl for This {
             }
             open_options.access_mode(access);
         }
-
         let file = loop {
             match open_options.open(&path).await {
                 Ok(file) => break Ok(file),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::NotFound
+                        && flags.contains(OpenFlags::CREATE) =>
+                {
                     let parent = path.parent().unwrap();
                     debug!("try to create dir {}", parent.display());
                     tokio::fs::create_dir_all(parent).await?;
