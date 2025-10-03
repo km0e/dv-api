@@ -1,4 +1,4 @@
-use crate::error::Result;
+use super::dev::{self, *};
 
 mod sqlite;
 pub use sqlite::Sqlite;
@@ -43,7 +43,7 @@ impl MultiDB {
             return Ok(None);
         };
         let (Ok(version), Ok(latest)) = (result.0.parse::<T>(), result.1.parse::<T>()) else {
-            dv_api::whatever!(
+            anyhow::bail!(
                 "Failed to parse version or latest as {} for uid: {}, path: {}",
                 std::any::type_name::<T>(),
                 uid,

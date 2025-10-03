@@ -105,11 +105,12 @@ impl Pm {
         info!("new_am os:{:?}", os);
         match os {
             Os::Linux(os) => match os {
-                LinuxOs::Manjaro => platform::manjaro::detect(u).await,
+                LinuxOs::Arch => platform::arch::detect(u).await,
+                LinuxOs::Manjaro => platform::arch::detect(u).await,
                 LinuxOs::Debian => platform::debian::detect(u).await,
                 LinuxOs::Alpine => platform::alpine::detect(u).await,
                 LinuxOs::Ubuntu => platform::ubuntu::detect(u).await,
-                _ => whatever!("Unknown LinuxOs"),
+                _ => bail!("Unknown LinuxOs {:?}", os),
             },
             Os::Windows => platform::windows::detect(u).await,
             _ => Ok(Self::unknown()),
@@ -136,8 +137,8 @@ impl Pm {
             program: self.name,
             args: Box::new(args.chain(packages)),
         };
-        if !ctx.dry_run && ctx.pty(uid, script).await? != 0 {
-            whatever!("{} failed", idx);
+        if ctx.pty(uid, script).await? != 0 {
+            bail!("{} failed", idx);
         }
         Ok(true)
     }

@@ -1,7 +1,7 @@
+use anyhow::bail;
 use dv_api::{
     core::{BoxedUser, Output},
     multi::{Config, create_local, create_ssh},
-    whatever,
 };
 use os2::Os;
 use std::{borrow::Cow, collections::HashMap};
@@ -30,7 +30,7 @@ impl User {
     }
     pub async fn ssh(mut cfg: Config) -> Result<Self> {
         let Some(host) = cfg.remove("host") else {
-            whatever!("ssh user must have host")
+            bail!("ssh user must have host")
         };
         let inner = create_ssh(host, &mut cfg).await?;
         Ok(Self {
@@ -42,7 +42,7 @@ impl User {
     fn normalize<'a>(&self, path: impl Into<&'a U8Path>) -> Result<Cow<'a, U8Path>> {
         let path: &'a U8Path = path.into();
         let Some(path) = var_replace(path.as_str(), &self.vars) else {
-            whatever!("var_replace failed: {}", path)
+            bail!("var_replace failed: {}", path)
         };
         let path: Cow<U8Path> = match path {
             Cow::Borrowed(path) => U8Path::new(path).into(),
@@ -61,8 +61,8 @@ impl User {
     pub fn os(&self) -> Os {
         self.vars["os"].as_str().into()
     }
-    pub async fn exist(&self, path: &U8Path) -> Result<bool> {
-        let path = self.normalize(path)?;
+    pub async fn exist<P: AsRef<U8Path>>(&self, path: P) -> Result<bool> {
+        let path = self.normalize(path.as_ref())?;
         debug!("exist:{}", path);
         Ok(self.inner.file_attributes(&path).await?.1.is_some())
     }
@@ -82,7 +82,7 @@ impl User {
                 mtime: Some(time), ..
             }) => Ok(Some(time as i64)),
             _ => {
-                whatever!("{path} mtime")
+                bail!("{path} mtime")
             }
         }
     }
@@ -91,7 +91,7 @@ impl User {
         let (path, fa) = self.file_attributes(path).await?;
         debug!("check_path:{}", path);
         let Some(attr) = fa else {
-            whatever!("{} not found", path)
+            bail!("{} not found", path)
         };
         let info = if attr.is_dir() {
             let files = self.inner.glob_file_meta(&path).await?;
@@ -115,10 +115,10 @@ impl User {
         let (path, fa) = self.file_attributes(path).await?;
         debug!("check_path:{}", path);
         let Some(attr) = fa else {
-            whatever!("{} not found", path)
+            bail!("{} not found", path)
         };
         if !attr.is_dir() {
-            whatever!("{} not a directory", path);
+            bail!("{} not a directory", path);
         }
         let metadata = self.inner.glob_file_meta(&path).await?;
         Ok(DirInfo {

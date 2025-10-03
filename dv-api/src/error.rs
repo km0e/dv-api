@@ -1,7 +1,5 @@
 #[derive(thiserror::Error, Debug, strum::EnumIs)]
 pub enum Error {
-    #[error("ssh config error: {0}")]
-    SSHConfig(#[from] russh_config::Error),
     #[error("ssh error: {0}")]
     SSH(#[from] russh::Error),
     #[error("sftp error: {0}")]
@@ -48,5 +46,3 @@ macro_rules! whatever {
         Err($crate::error::Error::unknown($crate::error::Error::Unknown(format!($($t)*))))?
     };
 }
-
-pub use whatever;

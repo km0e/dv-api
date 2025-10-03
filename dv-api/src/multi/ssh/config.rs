@@ -7,7 +7,13 @@ use tracing::{info, warn};
 
 use super::{Client, SSHSession, dev::*};
 
+static SSH_CONFIG: std::sync::LazyLock<ssh2_config::SshConfig> = std::sync::LazyLock::new(|| {
+    ssh2_config::SshConfig::parse_default_file(ssh2_config::ParseRule::STRICT)
+        .expect("failed to parse ssh config")
+});
+
 pub async fn create(host: String, cfg: &mut Config) -> Result<BoxedUser> {
+    debug!("ssh create: {}", host);
     let (clients, user) = connect(&host, cfg.get("passwd").cloned()).await?;
     if cfg.get("user").is_none() {
         cfg.set("user", user.clone());
@@ -39,32 +45,39 @@ pub async fn create(host: String, cfg: &mut Config) -> Result<BoxedUser> {
 }
 
 async fn connect_impl(
-    cfg: &russh_config::Config,
+    cfg: &ssh2_config::HostParams,
     clients: &mut Vec<Handle<Client>>,
     passwd: Option<String>,
 ) -> Result<()> {
+    let Some(host_name) = &cfg.host_name else {
+        whatever!("no host name in proxy jump")
+    };
+    let port = cfg.port.unwrap_or(22);
     let session = if let Some(jh) = &cfg.proxy_jump {
-        let host_cfg = russh_config::parse_home(jh)?; //with host
-        Box::pin(connect_impl(&host_cfg, clients, None)).await?;
-        debug!("proxy jump to {}", jh);
+        for jh in jh {
+            debug!("proxy jump to {}", jh);
+            let host_cfg = SSH_CONFIG.query(jh);
+            Box::pin(connect_impl(&host_cfg, clients, None)).await?;
+        }
         let s = clients
             .last()
             .unwrap()
-            .channel_open_direct_tcpip(cfg.host_name.clone(), cfg.port as u32, "127.0.0.1", 0)
+            .channel_open_direct_tcpip(host_name, port as u32, "127.0.0.1", 0)
             .await?
             .into_stream();
         client::connect_stream(Arc::new(client::Config::default()), s, Client {}).await?
     } else {
         client::connect(
             Arc::new(client::Config::default()),
-            (cfg.host_name.as_str(), cfg.port),
+            (host_name.as_str(), port),
             Client {},
         )
         .await?
     };
     clients.push(session);
     let session = clients.last_mut().unwrap();
-    let mut res = session.authenticate_none(&cfg.user).await?;
+    let username = cfg.user.as_ref().expect("no user");
+    let mut res = session.authenticate_none(username).await?;
     let AuthResult::Failure {
         mut remaining_methods,
         ..
@@ -74,40 +87,42 @@ async fn connect_impl(
     };
     warn!("authenticate_none failed");
     use russh::{MethodKind, keys};
-    if let (Some(path), true) = (
-        &cfg.identity_file,
-        remaining_methods.contains(&MethodKind::PublicKey),
-    ) {
-        let kp = keys::load_secret_key(path, None)?;
-        let private_key = keys::PrivateKeyWithHashAlg::new(Arc::new(kp), None);
-        res = session
-            .authenticate_publickey(&cfg.user, private_key)
-            .await?;
-        let AuthResult::Failure {
-            remaining_methods: s,
-            ..
-        } = res
-        else {
-            return Ok(());
-        };
-        remaining_methods = s;
-        warn!("authenticate_publickey with {} failed", path);
+    if remaining_methods.contains(&MethodKind::PublicKey)
+        && let Some(path) = &cfg.identity_file
+    {
+        for p in path {
+            info!("try authenticate_publickey with {}", p.display());
+            let kp = keys::load_secret_key(p, None)?;
+            let private_key = keys::PrivateKeyWithHashAlg::new(Arc::new(kp), None);
+            res = session
+                .authenticate_publickey(username, private_key)
+                .await?;
+            let AuthResult::Failure {
+                remaining_methods: s,
+                ..
+            } = res
+            else {
+                return Ok(());
+            };
+            remaining_methods = s;
+        }
     }
     if let (Some(passwd), true) = (passwd, remaining_methods.contains(&MethodKind::Password)) {
-        res = session.authenticate_password(&cfg.user, passwd).await?;
+        res = session.authenticate_password(username, passwd).await?;
         if res.success() {
             return Ok(());
         }
         warn!("authenticate_password failed");
     }
-    whatever!("ssh connect {} {} failed", cfg.host_name, cfg.user)
+    whatever!("ssh connect {} {} failed", host_name, username)
 }
 
 async fn connect(host: &str, passwd: Option<String>) -> Result<(Vec<Handle<Client>>, String)> {
-    let host_cfg = russh_config::parse_home(host)?; //with host
+    let host_cfg = SSH_CONFIG.query(host);
+    trace!("connect to {:?}", host_cfg);
     let mut clients = vec![];
     connect_impl(&host_cfg, &mut clients, passwd).await?;
-    Ok((clients, host_cfg.user))
+    Ok((clients, host_cfg.user.expect("no user").to_string()))
 }
 
 async fn detect2(h: &Handle<Client>, os: &mut Os) -> Result<HashMap<String, String>> {

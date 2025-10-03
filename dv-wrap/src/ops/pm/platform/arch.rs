@@ -4,7 +4,7 @@ use tracing::debug;
 use super::dev::*;
 
 pub async fn detect(u: &User) -> Result<Pm> {
-    debug!("try to detect manjaro package manager");
+    debug!("try to detect arch package manager");
     let ec = u
         .exec(Script::sh(
             r#"echo yes

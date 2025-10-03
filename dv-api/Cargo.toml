@@ -1,6 +1,6 @@
 [package]
 name = "dv-api"
-version = "0.1.1"
+version = "0.1.2"
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -9,6 +9,7 @@ repository.workspace = true
 async-trait.workspace = true
 bitflags = { version = "2.9" }
 e4pty = { version = "0.1" }
+camino = { version = "1.2" }
 fastrand = "2.3"
 os2 = { version = "0.1" }
 russh = { version = "0.54", default-features = false, features = [
@@ -16,16 +17,16 @@ russh = { version = "0.54", default-features = false, features = [
     "ring",
     "pty",
 ], git = "https://github.com/km0e/russh.git", branch = "pty" }
-russh-config = { version = "0.54", git = "https://github.com/km0e/russh.git", branch = "pty" }
 russh-sftp = "2.1"
-rustix = { version = "1.0", features = ["pty"] }
+rustix = { version = "1.1", features = ["pty"] }
+ssh2-config = { version = "0.6" }
 strum = { version = "0.27", features = ["derive"] }
 tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-camino = { version = "1.2" }
 walkdir = "2.5"
+whoami = { version = "1.6.1" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

@@ -41,3 +41,18 @@
 ### Improvements
 
 - Added `d` (delete) flag to `sync` operation to delete files in the destination that are not present in the source.
+
+# Version 0.1.4 (2025-10-21)
+
+## dv-api
+
+### Improvements
+
+- Use `ssh2-config` package to parse SSH config files for better handling of SSH connections
+
+## dv-wrap
+
+### Improvements
+
+- Better action confirmation for `sync` operation
+- Removed `dry-run` flag

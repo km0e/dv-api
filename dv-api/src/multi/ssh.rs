@@ -190,7 +190,7 @@ impl UserImpl for SSHSession {
         let channel = self.session().channel_open_session().await?;
         channel
             .request_pty(
-                false,
+                true,
                 std::env::var("TERM").as_deref().unwrap_or("xterm"),
                 win_size.cols as u32,
                 win_size.rows as u32,

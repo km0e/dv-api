@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use crate::{Result, fs::*};
 use e4pty::prelude::*;
 
+#[derive(Default, Debug, Clone)]
 pub struct Output {
     pub code: i32,
     pub stdout: Vec<u8>,

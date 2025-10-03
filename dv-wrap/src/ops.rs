@@ -1,12 +1,9 @@
 mod dev {
-    pub use crate::context::Context;
-    pub(crate) use crate::context::action;
+    pub use crate::context::{AsRefContext, Context};
     pub use crate::dev::*;
-    pub use dv_api::whatever;
+    pub use anyhow::bail;
 }
 
-mod sync;
-pub use sync::SyncContext;
 mod exec;
 pub use exec::exec;
 mod pm;
@@ -18,7 +15,9 @@ pub use refresh::refresh;
 mod fs;
 pub use fs::*;
 mod dl;
-pub use dl::dl;
+pub use dl::Dl;
+mod sync;
+pub use sync::{Entry as SyncEntry, Opt as SyncOpt, SyncContext3};
 
 mod dotutils;
 pub use dotutils::*;

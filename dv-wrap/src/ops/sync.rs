@@ -1,8 +1,10 @@
-use std::fmt::Write;
-use std::ops::Deref;
-
 use super::dev::*;
+use anyhow::Result;
+use dv_api::fs::{Metadata, U8Path, U8PathBuf};
+use std::fmt::Write;
 use tracing::{debug, info};
+
+use crate::{Context, MultiDB, interactor::DynInteractor};
 
 pub async fn try_copy(src: &User, src_path: &U8Path, dst: &User, dst_path: &U8Path) -> Result<()> {
     let mut src = src.open(src_path, OpenFlags::READ).await?;
@@ -16,219 +18,165 @@ pub async fn try_copy(src: &User, src_path: &U8Path, dst: &User, dst_path: &U8Pa
     Ok(())
 }
 
-pub struct SyncContext<'a> {
-    ctx: &'a Context,
-    pub src: &'a User,
+bitflags::bitflags! {
+    #[derive(Default,Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct Opt: u8 {
+        const OVERWRITE = 0b000001;
+        const UPDATE = 0b000010;
+        const DELETEDST = 0b000100;
+        const DELETESRC = 0b001000;
+        const UPLOAD = 0b010000;
+        const DOWNLOAD = 0b100000;
+    }
+}
+
+struct ScanContext<'a> {
+    db: &'a MultiDB,
+    int: &'a DynInteractor,
+    opts: &'a [Opt],
     suid: &'a str,
-    pub dst: &'a User,
     duid: &'a str,
-    pub opt: &'a str,
 }
 
-impl<'a> Deref for SyncContext<'a> {
-    type Target = Context;
-    fn deref(&self) -> &Self::Target {
-        self.ctx
-    }
+#[derive(Default)]
+pub struct Entry {
+    pub src: U8PathBuf,
+    pub dst: U8PathBuf,
+    pub src_attr: Option<i64>,
+    pub dst_attr: Option<i64>,
+    pub opt: Opt,
 }
-impl<'a> SyncContext<'a> {
-    pub fn new(
-        ctx: &'a Context,
-        src_uid: &'a str,
-        dst_uid: &'a str,
-        mut opt: Option<&'a str>,
-    ) -> Result<Self> {
-        let src = ctx.get_user(src_uid)?;
-        let dst = ctx.get_user(dst_uid)?;
-        if opt.is_some_and(|o| {
-            !o.chars()
-                .all(|c| c == 'y' || c == 'n' || c == 'u' || c == 'd')
-        }) {
-            opt = None;
+
+impl<'a> ScanContext<'a> {
+    async fn select(&self, sp: &U8Path, dp: &U8Path, opt: Opt) -> Result<Opt> {
+        if opt.is_empty() {
+            return Ok(Opt::empty());
         }
-        Ok(Self {
-            ctx,
-            src,
-            suid: src_uid,
-            dst,
-            duid: dst_uid,
-            opt: opt.unwrap_or(""),
-        })
-    }
-
-    async fn select(
-        &self,
-        sp: &U8Path,
-        dp: &U8Path,
-        overwrite: bool,
-        delete: bool,
-        update: bool,
-    ) -> Result<Option<bool>> {
-        for opt in self.opt.chars() {
-            match opt {
-                'y' if overwrite => return Ok(Some(false)),
-                'd' if delete => return Ok(Some(false)),
-                'u' if update => return Ok(Some(true)),
-                'n' => return Ok(None),
-                _ => continue,
-            }
+        if let Some(o) = self
+            .opts
+            .iter()
+            .find(|&&o| o.is_empty() || ((o & opt) == o))
+        {
+            return Ok(*o);
         }
         let mut hint = String::new();
         let mut opts = Vec::new();
         write!(&mut hint, "{}:{sp} -> {}:{dp}", self.suid, self.duid).unwrap();
-        if overwrite {
-            opts.push("y/overwrite");
-        }
-        if delete {
-            opts.push("d/delete");
-        }
-        if update {
-            opts.push("u/update");
+        for o in opt.iter() {
+            match o {
+                Opt::OVERWRITE => {
+                    opts.push("y/overwrite");
+                }
+                Opt::UPDATE => {
+                    opts.push("u/update");
+                }
+                Opt::DELETEDST => {
+                    opts.push("d/delete remote");
+                }
+                Opt::DELETESRC => {
+                    opts.push("d/delete local");
+                }
+                Opt::UPLOAD => {
+                    opts.push("y/upload");
+                }
+                Opt::DOWNLOAD => {
+                    opts.push("y/download");
+                }
+                _ => {}
+            }
         }
         opts.push("n/skip");
-        let sel = self.interactor.confirm(hint, &opts).await?;
-        Ok(match opts[sel].chars().nth(0) {
-            Some('y') => Some(false),
-            Some('u') => Some(true),
-            Some('n') => None,
-            _ => unreachable!(),
-        })
+        let sel = self.int.confirm(hint, &opts).await?;
+        Ok(opt.iter().nth(sel).unwrap_or(Opt::empty()))
     }
-
-    async fn update_db(
+    async fn select_src(
         &self,
-        sp: &U8Path,
-        dp: &U8Path,
-        src_ts: Option<i64>,
-        dst_ts: Option<i64>,
-    ) -> Result<()> {
-        let Some(src_ts) = src_ts else {
-            whatever!("get {} mtime failed", sp)
-        };
-        let Some(dst_ts) = dst_ts else {
-            whatever!("get {} mtime failed", dp)
-        };
-        self.db
-            .set(
-                self.duid,
-                dp.as_str(),
-                &src_ts.to_string(),
-                &dst_ts.to_string(),
-            )
+        src: impl Into<U8PathBuf>,
+        dst: impl Into<U8PathBuf>,
+        sa: dv_api::fs::FileAttributes,
+    ) -> Result<Option<Entry>> {
+        let src = src.into();
+        let dst = dst.into();
+        let opt = self
+            .select(&src, &dst, Opt::UPLOAD | Opt::DELETESRC)
             .await?;
-        Ok(())
-    }
-    async fn rm(&self, sp: &U8Path, dm: &Metadata) -> Result<bool> {
-        let res = self.select(sp, &dm.path, false, true, true).await?;
-        if let Some(rev) = if !self.dry_run { res } else { None } {
-            if !rev {
-                self.db.del(self.duid, dm.path.as_str()).await?;
-                self.dst.rm(&dm.path).await?;
-            } else {
-                try_copy(self.dst, &dm.path, self.src, sp).await?;
-                let dst_ts = match dm.attr.mtime {
-                    Some(ts) => Some(ts as i64),
-                    None => self.dst.get_mtime(&dm.path).await?,
-                };
-                self.update_db(sp, &dm.path, self.src.get_mtime(sp).await?, dst_ts)
-                    .await?;
-            }
+        if opt.is_empty() {
+            return Ok(None);
         }
-        match res {
-            Some(true) => {
-                action!(
-                    self,
-                    true,
-                    "download {}:{} <- {}:{}",
-                    self.suid,
-                    sp,
-                    self.duid,
-                    dm.path
-                );
-            }
-            res => {
-                action!(self, res.is_some(), "remove {}:{}", self.duid, dm.path);
-            }
-        }
-        Ok(res.is_some())
+        Ok(Some(Entry {
+            src,
+            dst,
+            src_attr: sa.mtime.map(|t| t as i64),
+            dst_attr: None,
+            opt,
+        }))
     }
-
-    async fn copy_file(
+    async fn select_dst(
         &self,
-        sp: &U8Path,
-        dp: &U8Path,
-        sa: &FileAttributes,
-        da: Option<FileAttributes>,
-    ) -> Result<bool> {
-        debug!(
-            "{}:{}({:?}) - {}:{}({:?})",
-            self.suid,
-            sp,
-            sa.mtime,
-            self.duid,
-            dp,
-            da.as_ref().map(|a| a.mtime),
-        );
-        let dst_mtime = da.as_ref().and_then(|a| a.mtime);
-
-        let res = if da.is_none() {
-            Some(false)
-        } else {
-            'check_opt: {
-                let db = self.ctx.db.get_as::<i64>(self.duid, dp.as_str()).await?;
-                debug!("check {}:{} db: {:?}", self.duid, dp, db);
-                let overwrite = sa.mtime.is_some_and(|mt| {
-                    db.is_none_or(|(ver, _)| ver != mt as i64) || dst_mtime.is_none()
-                });
-                let update = dst_mtime.is_some_and(|mt| {
-                    db.is_none_or(|(_, old)| old != mt as i64) || sa.mtime.is_none()
-                });
-                if !overwrite && !update {
-                    break 'check_opt None;
-                }
-                self.select(sp, dp, overwrite, false, update).await?
-            }
-        };
-
-        if let Some(rev) = if !self.dry_run { res } else { None } {
-            let (src_ts, dst_ts) = if !rev {
-                try_copy(self.src, sp, self.dst, dp).await?;
-                let src_ts = match sa.mtime {
-                    Some(ts) => Some(ts as i64),
-                    None => self.src.get_mtime(sp).await?,
-                };
-                (src_ts, self.dst.get_mtime(dp).await?)
-            } else {
-                try_copy(self.dst, dp, self.src, sp).await?;
-                let dst_ts = match dst_mtime {
-                    Some(ts) => Some(ts as i64),
-                    None => self.dst.get_mtime(dp).await?,
-                };
-                (self.src.get_mtime(sp).await?, dst_ts)
-            };
-            self.update_db(sp, dp, src_ts, dst_ts).await?;
+        src: impl Into<U8PathBuf>,
+        dst: impl Into<U8PathBuf>,
+        da: dv_api::fs::FileAttributes,
+    ) -> Result<Option<Entry>> {
+        let src = src.into();
+        let dst = dst.into();
+        let opt = self
+            .select(&src, &dst, Opt::DOWNLOAD | Opt::DELETEDST)
+            .await?;
+        if opt.is_empty() {
+            return Ok(None);
         }
-        let update = res.is_some_and(|do_| do_);
-        action!(
-            self,
-            res.is_some(),
-            "{} {}:{} {} {}:{}",
-            if update { "update" } else { "copy" },
-            self.suid,
-            sp,
-            if update { "<-" } else { "->" },
-            self.duid,
-            dp
-        );
-        Ok(res.is_some())
+        Ok(Some(Entry {
+            src,
+            dst,
+            src_attr: None,
+            dst_attr: da.mtime.map(|t| t as i64),
+            opt,
+        }))
+    }
+    async fn select_both(
+        &self,
+        src: impl Into<U8PathBuf>,
+        dst: impl Into<U8PathBuf>,
+        sa: dv_api::fs::FileAttributes,
+        da: dv_api::fs::FileAttributes,
+    ) -> Result<Option<Entry>> {
+        let src = src.into();
+        let dst = dst.into();
+        let mut flag = Opt::empty();
+        let db = self.db.get_as::<i64>(self.duid, dst.as_str()).await?;
+        debug!(db = ?db, "{} : {} = {}, {} : {} = {}",self.suid, src.as_str(), sa.mtime.unwrap_or_default(),self.duid, dst.as_str(), da.mtime.unwrap_or_default());
+        if sa
+            .mtime
+            .is_some_and(|mt| db.is_none_or(|(ver, _)| ver != mt as i64))
+        {
+            flag |= Opt::OVERWRITE;
+        }
+        if da
+            .mtime
+            .is_some_and(|mt| db.is_none_or(|(_, old)| old != mt as i64))
+        {
+            flag |= Opt::UPDATE;
+        }
+        let opt = self.select(&src, &dst, flag).await?;
+        if opt.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(Entry {
+            src,
+            dst,
+            src_attr: sa.mtime.map(|t| t as i64),
+            dst_attr: da.mtime.map(|t| t as i64),
+            opt,
+        }))
     }
 
-    async fn check_copy_dir(
+    async fn check_copy_dir2(
         &self,
         sp: U8PathBuf,
+        mut src_files: Vec<Metadata>,
         dp: U8PathBuf,
         mut dst_files: Vec<Metadata>,
-    ) -> Result<bool> {
+    ) -> Result<Vec<Entry>> {
         debug!(
             "check_copy_dir {}:{} -> {}:{}",
             self.suid,
@@ -236,110 +184,212 @@ impl<'a> SyncContext<'a> {
             self.duid,
             dp.as_str()
         );
-        let mut src_files = self.src.glob(&sp).await?;
         src_files.sort_by(|m1, m2| m1.path.as_str().cmp(m2.path.as_str()));
         dst_files.sort_by(|m1, m2| m1.path.as_str().cmp(m2.path.as_str()));
-        let mut si = src_files.iter().peekable();
-        let mut di = dst_files.iter().peekable();
-        let mut res = false;
+        let mut si = src_files.into_iter().peekable();
+        let mut di = dst_files.into_iter().peekable();
+        let mut entries = Vec::new();
         loop {
             match (si.peek(), di.peek()) {
                 (Some(sm), Some(dm)) => {
                     let ss = sm.path.strip_prefix(&sp).unwrap();
                     let ds = dm.path.strip_prefix(&dp).unwrap();
                     if ss == ds {
-                        res |= self
-                            .copy_file(&sm.path, &dm.path, &sm.attr, Some(dm.attr.clone()))
-                            .await?;
-                        si.next();
-                        di.next();
+                        let sm = si.next().unwrap();
+                        let dm = di.next().unwrap();
+                        entries.extend(
+                            self.select_both(&sm.path, &dm.path, sm.attr, dm.attr)
+                                .await?,
+                        );
                     } else if ss < ds {
                         let dp = dp.join(ss);
-                        res |= self.copy_file(&sm.path, &dp, &sm.attr, None).await?;
-                        si.next();
+                        let sm = si.next().unwrap();
+                        entries.extend(self.select_src(sm.path, dp, sm.attr).await?);
                     } else {
                         let sp = sp.join(ds);
-                        res |= self.rm(&sp, dm).await?;
-                        di.next();
+                        let dm = di.next().unwrap();
+                        entries.extend(self.select_dst(sp, dm.path, dm.attr).await?);
                     }
                 }
                 (Some(_), None) => {
                     for sm in si {
                         let dp = dp.join(sm.path.strip_prefix(&sp).unwrap());
-                        res |= self.copy_file(&sm.path, &dp, &sm.attr, None).await?;
+                        entries.extend(self.select_src(sm.path, dp, sm.attr).await?);
                     }
                     break;
                 }
                 (None, Some(_)) => {
                     for dm in di {
-                        let ds = dm.path.strip_prefix(&dp).unwrap();
-                        let sp = sp.join(ds);
-                        res |= self.rm(&sp, dm).await?;
+                        let sp = sp.join(dm.path.strip_prefix(&dp).unwrap());
+                        entries.extend(self.select_dst(sp, dm.path, dm.attr).await?);
                     }
                     break;
                 }
                 (None, None) => break,
             }
         }
+        Ok(entries)
+    }
+}
+pub struct SyncContext3<'a> {
+    ctx: &'a Context,
+    opts: &'a [Opt],
+    suid: &'a str,
+    duid: &'a str,
+}
 
-        Ok(res)
+impl<'a> SyncContext3<'a> {
+    pub fn new(ctx: &'a Context, suid: &'a str, duid: &'a str, opts: &'a [Opt]) -> Self {
+        Self {
+            ctx,
+            suid,
+            duid,
+            opts,
+        }
     }
 
-    pub async fn sync(&self, src_path: impl AsRef<str>, dst_path: impl AsRef<str>) -> Result<bool> {
+    pub async fn scan(
+        &self,
+        src_path: impl AsRef<str>,
+        dst_path: impl AsRef<str>,
+    ) -> Result<Vec<Entry>> {
+        let src = self.ctx.get_user(self.suid)?;
+        let dst = self.ctx.get_user(self.duid)?;
         let src_path = src_path.as_ref();
         let dst_path: &str = dst_path.as_ref();
+        let (src_path, src_attr) = src.file_attributes(src_path.into()).await?;
+        let (dst_path, dst_attr) = dst.file_attributes(dst_path.into()).await?;
         info!(
             "sync {}:{} -> {}:{}",
             self.suid, src_path, self.duid, dst_path
         );
-        let (src_path, src_attr) = self.src.file_attributes(src_path.into()).await?;
-        let Some(src_attr) = src_attr else {
-            debug!("{}:{} not found", self.suid, src_path);
-            return Ok(false);
+        let ctx = ScanContext {
+            db: &self.ctx.db,
+            int: &*self.ctx.interactor,
+            opts: self.opts,
+            suid: self.suid,
+            duid: self.duid,
         };
-
-        let (dst_path, dst_attr) = self.dst.file_attributes(dst_path.into()).await?;
-        match (src_attr.is_dir(), dst_attr) {
-            (true, None) => {
-                // Both are directories
-                self.check_copy_dir(src_path, dst_path, Vec::new()).await
-            }
-            (true, Some(attr)) if attr.is_dir() => {
-                let dst_files = self.dst.glob(&dst_path).await?;
-                self.check_copy_dir(src_path, dst_path, dst_files).await
-            }
-            (false, dst_attr) if dst_attr.as_ref().is_none_or(|a| !a.is_dir()) => {
-                // Source is a file, destination is not a directory
-                self.copy_file(&src_path, &dst_path, &src_attr, dst_attr)
+        match (src_attr, dst_attr) {
+            (Some(src_attr), Some(dst_attr)) if src_attr.is_dir() && dst_attr.is_dir() => {
+                let src_files = src.glob(&src_path).await?;
+                let dst_files = dst.glob(&dst_path).await?;
+                ctx.check_copy_dir2(src_path, src_files, dst_path, dst_files)
                     .await
             }
-            (_, dst_attr) => {
-                // Mismatched types: source is a directory but destination is a file or vice versa
-                whatever!(
+            (Some(src_attr), None) if src_attr.is_dir() => {
+                let src_files = src.glob(&src_path).await?;
+                ctx.check_copy_dir2(src_path, src_files, dst_path, Vec::new())
+                    .await
+            }
+            (None, Some(dst_attr)) if dst_attr.is_dir() => {
+                let dst_files = dst.glob(&dst_path).await?;
+                ctx.check_copy_dir2(src_path, Vec::new(), dst_path, dst_files)
+                    .await
+            }
+            (Some(src_attr), Some(dst_attr)) if !src_attr.is_dir() && !dst_attr.is_dir() => {
+                Ok(Vec::from_iter(
+                    ctx.select_both(&src_path, &dst_path, src_attr, dst_attr)
+                        .await?,
+                ))
+            }
+            (Some(src_attr), None) if !src_attr.is_dir() => Ok(Vec::from_iter(
+                ctx.select_src(src_path, dst_path, src_attr).await?,
+            )),
+            (None, Some(dst_attr)) if !dst_attr.is_dir() => Ok(Vec::from_iter(
+                ctx.select_dst(src_path, dst_path, dst_attr).await?,
+            )),
+            (src_attr, dst_attr) => {
+                bail!(
                     "mismatched types: {}:{} is {} but {}:{} is {}",
                     self.suid,
                     src_path,
-                    if src_attr.is_dir() {
-                        "directory"
-                    } else {
-                        "file"
+                    match src_attr {
+                        Some(a) if a.is_dir() => "directory",
+                        Some(_) => "file",
+                        None => "not found",
                     },
                     self.duid,
                     dst_path,
-                    if dst_attr.is_some_and(|a| a.is_dir()) {
-                        "directory"
-                    } else {
-                        "file"
+                    match dst_attr {
+                        Some(a) if a.is_dir() => "directory",
+                        Some(_) => "file",
+                        None => "not found",
                     }
                 )
             }
         }
     }
+    pub async fn execute(&self, entres: &[Entry]) -> Result<bool> {
+        let src = self.ctx.get_user(self.suid)?;
+        let dst = self.ctx.get_user(self.duid)?;
+        for entry in entres {
+            match entry.opt {
+                Opt::OVERWRITE | Opt::UPLOAD => {
+                    try_copy(src, &entry.src, dst, &entry.dst).await?;
+                    let src_mtime = match entry.src_attr {
+                        Some(t) => t,
+                        None => src.get_mtime(&entry.src).await?.expect("get mtime"),
+                    }
+                    .to_string();
+                    let dst_mtime = dst
+                        .get_mtime(&entry.dst)
+                        .await?
+                        .expect("get mtime")
+                        .to_string();
+                    debug!(
+                        "set db {} : {} = {}, {}",
+                        self.duid,
+                        entry.dst.as_str(),
+                        src_mtime,
+                        dst_mtime
+                    );
+                    self.ctx
+                        .db
+                        .set(self.duid, entry.dst.as_str(), &src_mtime, &dst_mtime)
+                        .await?;
+                }
+                Opt::UPDATE | Opt::DOWNLOAD => {
+                    try_copy(dst, &entry.dst, src, &entry.src).await?;
+                    let src_mtime = src
+                        .get_mtime(&entry.src)
+                        .await?
+                        .expect("get mtime")
+                        .to_string();
+                    let dst_mtime = match entry.dst_attr {
+                        Some(t) => t,
+                        None => dst.get_mtime(&entry.dst).await?.expect("get mtime"),
+                    }
+                    .to_string();
+                    debug!(
+                        "set db {} : {} = {}, {}",
+                        self.duid,
+                        entry.dst.as_str(),
+                        src_mtime,
+                        dst_mtime
+                    );
+                    self.ctx
+                        .db
+                        .set(self.duid, entry.dst.as_str(), &src_mtime, &dst_mtime)
+                        .await?;
+                }
+                Opt::DELETEDST => {
+                    self.ctx.db.del(self.duid, entry.dst.as_str()).await?;
+                    dst.rm(&entry.dst).await?;
+                }
+                Opt::DELETESRC => {
+                    self.ctx.db.del(self.duid, entry.src.as_str()).await?;
+                    src.rm(&entry.src).await?;
+                }
+                _ => {}
+            }
+        }
+        Ok(true)
+    }
 }
-
 #[cfg(test)]
 mod tests {
-    use std::{path::Path, time::Duration};
+    use std::path::Path;
 
     use crate::{
         Context,
@@ -348,10 +398,21 @@ mod tests {
         interactor::TermInteractor,
     };
 
-    use assert_fs::{TempDir, fixture::ChildPath, prelude::*};
+    use assert_fs::{TempDir, prelude::*};
     use dv_api::multi::Config;
 
-    use super::SyncContext;
+    use super::Opt;
+    use super::SyncContext3;
+
+    fn mtime(path: &Path) -> u64 {
+        path.metadata()
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    }
 
     ///Prepare a test environment with a source and destination directory.
     /// # Parameters
@@ -365,7 +426,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut cfg = Config::default();
         cfg.set("mount", dir.to_string_lossy());
-        let mut ctx = Context::new(false, db, None, interactor);
+        let mut ctx = Context::new(db, None, interactor);
         ctx.add_user("this".to_string(), User::local(cfg).await.unwrap())
             .await
             .expect("add user");
@@ -381,126 +442,315 @@ mod tests {
         }
         (ctx, dir)
     }
-    fn content_assert(dir: &ChildPath, pairs: &[(&str, &str)]) {
-        for (name, content) in pairs {
-            dir.child(name).assert(*content);
+    #[tokio::test]
+    async fn no_file() {
+        let (ctx, _) = tenv(&[], &[]).await;
+        let ctx = SyncContext3::new(&ctx, "this", "this", &[Opt::UPDATE, Opt::OVERWRITE]);
+        let entries = ctx.scan("src/f0", "dst/f0").await;
+        assert!(entries.is_err());
+    }
+    struct LocalFixtureResult {
+        len: usize,
+        opt: Opt,
+        res: bool,
+        content: Option<&'static str>,
+    }
+    impl LocalFixtureResult {
+        fn new(len: usize, opt: Opt, res: bool, content: Option<&'static str>) -> Self {
+            Self {
+                len,
+                opt,
+                res,
+                content,
+            }
+        }
+        fn suc() -> LocalFixtureResult {
+            LocalFixtureResult::new(1, Opt::UPLOAD, true, Some("f0"))
+        }
+        fn none() -> LocalFixtureResult {
+            LocalFixtureResult::new(0, Opt::empty(), false, None)
+        }
+        fn no_local() -> LocalFixtureResult {
+            LocalFixtureResult::new(1, Opt::DELETESRC, true, None)
         }
     }
-    async fn db_assert(db: &MultiDB, src: &Path, dst: &Path) {
-        let src_meta = src.metadata().unwrap();
-        let dst_meta = dst.metadata().unwrap();
-        let mtime = {
-            #[cfg(windows)]
-            {
-                use std::os::windows::fs::MetadataExt;
-                (
-                    src_meta.last_write_time() as i64,
-                    dst_meta.last_write_time() as i64,
-                )
-            }
-            #[cfg(not(windows))]
-            {
-                use std::os::unix::fs::MetadataExt;
-                (src_meta.mtime(), dst_meta.mtime())
-            }
-        };
-        assert_eq!(
-            mtime,
-            db.get_as::<i64>("this", dst.to_str().unwrap())
-                .await
-                .unwrap()
-                .unwrap(),
-            "about path: {}",
-            dst.display()
-        );
-    }
-    async fn db_assert2(db: &MultiDB, src: ChildPath, dst: ChildPath, subpaths: &[&str]) {
-        for subpath in subpaths {
-            db_assert(db, src.child(subpath).path(), dst.child(subpath).path()).await;
-        }
-    }
-    async fn copy_dir_fixture(src: &str, dst: &str) {
-        let (ctx, dir) = tenv(&[("f0", "f0"), ("f1", "f1")], &[]).await;
-        let ctx = SyncContext::new(&ctx, "this", "this", Some("y")).unwrap();
-        assert!(ctx.sync(src, dst).await.unwrap(), "copy should success");
-        content_assert(&dir.child("dst"), &[("f0", "f0"), ("f1", "f1")]);
-        db_assert2(&ctx.db, dir.child("src"), dir.child("dst"), &["f0", "f1"]).await;
-    }
-
-    /// Test operation of copy("src/f0", `dst`) will generate `expect`
-    async fn copy_file_fixture(dst: &str, expect: &str, default: &str) {
+    async fn local_fixture(ops: &[Opt], res: LocalFixtureResult) {
         let (ctx, dir) = tenv(&[("f0", "f0")], &[]).await;
-        let ctx = SyncContext::new(&ctx, "this", "this", Some(default)).unwrap();
-        assert!(
-            ctx.sync("src/f0", dst).await.unwrap(),
-            "copy should success"
-        );
-        dir.child(expect).assert("f0");
-        db_assert(
-            &ctx.db,
-            dir.child("src/f0").path(),
-            dir.child(expect).path(),
+        let ctx = SyncContext3::new(&ctx, "this", "this", ops);
+        let entries = ctx.scan("src/f0", "dst/f0").await.unwrap();
+        assert_eq!(entries.len(), res.len);
+        if res.len == 0 {
+            return;
+        }
+        assert_eq!(entries[0].opt, res.opt);
+        let tres = ctx.execute(&entries).await.unwrap();
+        assert_eq!(res.res, tres);
+        let src = dir.child("src/f0");
+        let dst = dir.child("dst/f0");
+        let dst_db = ctx
+            .ctx
+            .db
+            .get_as::<u64>("this", dst.to_str().unwrap())
+            .await
+            .unwrap();
+        if let Some(content) = res.content {
+            dst.assert(content);
+            let (db_s, db_t) = dst_db.unwrap();
+            assert_eq!(mtime(&src), db_s);
+            assert_eq!(mtime(&dst), db_t);
+        } else {
+            assert!(!src.exists());
+            assert!(dst_db.is_none());
+        }
+    }
+    #[tokio::test]
+    async fn local() {
+        local_fixture(&[Opt::UPLOAD], LocalFixtureResult::suc()).await;
+        local_fixture(&[Opt::UPLOAD, Opt::UPDATE], LocalFixtureResult::suc()).await;
+        local_fixture(&[Opt::UPLOAD, Opt::OVERWRITE], LocalFixtureResult::suc()).await;
+        local_fixture(&[Opt::UPDATE, Opt::empty()], LocalFixtureResult::none()).await;
+        local_fixture(&[Opt::empty(), Opt::UPLOAD], LocalFixtureResult::none()).await;
+        local_fixture(&[Opt::DELETESRC], LocalFixtureResult::no_local()).await;
+        local_fixture(
+            &[Opt::DELETESRC, Opt::UPLOAD],
+            LocalFixtureResult::no_local(),
+        )
+        .await;
+        local_fixture(&[Opt::empty()], LocalFixtureResult::none()).await;
+        local_fixture(
+            &[Opt::DELETESRC, Opt::empty()],
+            LocalFixtureResult::no_local(),
+        )
+        .await;
+        local_fixture(&[Opt::UPLOAD, Opt::DELETESRC], LocalFixtureResult::suc()).await;
+        local_fixture(
+            &[Opt::DELETESRC, Opt::UPLOAD, Opt::empty()],
+            LocalFixtureResult::no_local(),
         )
         .await;
     }
-    #[tokio::test]
-    async fn copy_dir() {
-        copy_dir_fixture("src/", "dst").await;
-        copy_dir_fixture("src/", "dst/").await;
-        copy_dir_fixture("src", "dst").await;
-        copy_dir_fixture("src", "dst").await;
+    struct RemoteFixtureResult {
+        len: usize,
+        opt: Opt,
+        res: bool,
+        content: Option<&'static str>,
+    }
+    impl RemoteFixtureResult {
+        fn new(len: usize, opt: Opt, res: bool, content: Option<&'static str>) -> Self {
+            Self {
+                len,
+                opt,
+                res,
+                content,
+            }
+        }
+        fn suc() -> RemoteFixtureResult {
+            RemoteFixtureResult::new(1, Opt::DOWNLOAD, true, Some("f0"))
+        }
+        fn none() -> RemoteFixtureResult {
+            RemoteFixtureResult::new(0, Opt::empty(), false, None)
+        }
+        fn no_remote() -> RemoteFixtureResult {
+            RemoteFixtureResult::new(1, Opt::DELETEDST, true, None)
+        }
+    }
+    async fn remote_fixture(ops: &[Opt], res: RemoteFixtureResult) {
+        let (ctx, dir) = tenv(&[], &[("f0", "f0")]).await;
+        let ctx = SyncContext3::new(&ctx, "this", "this", ops);
+        let entries = ctx.scan("src/f0", "dst/f0").await.unwrap();
+        assert_eq!(entries.len(), res.len);
+        if res.len == 0 {
+            return;
+        }
+        assert_eq!(entries[0].opt, res.opt);
+        let tres = ctx.execute(&entries).await.unwrap();
+        assert_eq!(res.res, tres);
+        let src = dir.child("src/f0");
+        let dst = dir.child("dst/f0");
+        let dst_db = ctx
+            .ctx
+            .db
+            .get_as::<u64>("this", dst.to_str().unwrap())
+            .await
+            .unwrap();
+
+        if let Some(content) = res.content {
+            src.assert(content);
+            let (db_s, db_t) = dst_db.unwrap();
+            assert_eq!(mtime(&src), db_s);
+            assert_eq!(mtime(&dst), db_t);
+        } else {
+            assert!(!dst.exists());
+            assert!(dst_db.is_none());
+        }
     }
     #[tokio::test]
-    async fn copy_file() {
-        copy_file_fixture("dst", "dst", "y").await;
-        copy_file_fixture("dst/f0", "dst/f0", "y").await;
-    }
-    #[tokio::test]
-    async fn test_update() {
-        let (ctx, dir) = tenv(&[("f0", "f00"), ("f1", "f11")], &[]).await;
-        let ctx = SyncContext::new(&ctx, "this", "this", Some("y")).unwrap();
-        assert!(ctx.sync("src", "dst").await.unwrap(), "sync should success");
-        tokio::time::sleep(Duration::from_secs(2)).await;
-        let src = dir.child("src");
-        src.child("f0").write_str("f0").unwrap();
-        src.child("f1").write_str("f1").unwrap();
-        assert!(
-            ctx.sync("src/", "dst").await.unwrap(),
-            "sync should success"
-        );
-        let dst = dir.child("dst");
-        dst.child("f0").assert("f0");
-        dst.child("f1").assert("f1");
-        db_assert(&ctx.db, src.child("f0").path(), dst.child("f0").path()).await;
-        db_assert(&ctx.db, src.child("f1").path(), dst.child("f1").path()).await;
-    }
-    #[tokio::test]
-    async fn test_donothing() {
-        let (ctx, dir) = tenv(&[("f0", "f0"), ("f1", "f1")], &[]).await;
-        let mut ctx = SyncContext::new(&ctx, "this", "this", Some("y")).unwrap();
-        let src = dir.child("src");
-        assert!(
-            ctx.sync("src/", "dst").await.unwrap(),
-            "sync should success"
-        );
-        ctx.opt = "n";
-        assert!(
-            !ctx.sync("src/", "dst").await.unwrap(),
-            "sync should do nothing"
-        );
-        src.child("f0").assert("f0");
-        src.child("f1").assert("f1");
-        db_assert(
-            &ctx.db,
-            dir.child("src/f0").path(),
-            dir.child("dst/f0").path(),
+    async fn remote() {
+        remote_fixture(&[Opt::DOWNLOAD], RemoteFixtureResult::suc()).await;
+        remote_fixture(&[Opt::DOWNLOAD, Opt::UPDATE], RemoteFixtureResult::suc()).await;
+        remote_fixture(&[Opt::DOWNLOAD, Opt::OVERWRITE], RemoteFixtureResult::suc()).await;
+        remote_fixture(&[Opt::UPDATE, Opt::empty()], RemoteFixtureResult::none()).await;
+        remote_fixture(&[Opt::empty(), Opt::DOWNLOAD], RemoteFixtureResult::none()).await;
+        remote_fixture(&[Opt::DELETEDST], RemoteFixtureResult::no_remote()).await;
+        remote_fixture(
+            &[Opt::DELETEDST, Opt::DOWNLOAD],
+            RemoteFixtureResult::no_remote(),
         )
         .await;
-        db_assert(
-            &ctx.db,
-            dir.child("src/f1").path(),
-            dir.child("dst/f1").path(),
+        remote_fixture(&[Opt::empty()], RemoteFixtureResult::none()).await;
+        remote_fixture(
+            &[Opt::DELETEDST, Opt::empty()],
+            RemoteFixtureResult::no_remote(),
         )
         .await;
+        remote_fixture(&[Opt::DOWNLOAD, Opt::DELETEDST], RemoteFixtureResult::suc()).await;
+        remote_fixture(
+            &[Opt::DELETEDST, Opt::DOWNLOAD, Opt::empty()],
+            RemoteFixtureResult::no_remote(),
+        )
+        .await;
+    }
+    struct Bfr {
+        len: usize,
+        opt: Opt,
+        res: bool,
+        content: &'static str,
+    }
+    impl Bfr {
+        fn new(len: usize, opt: Opt, res: bool, content: &'static str) -> Self {
+            Self {
+                len,
+                opt,
+                res,
+                content,
+            }
+        }
+        fn overwrite() -> Bfr {
+            Bfr::new(1, Opt::OVERWRITE, true, "f0")
+        }
+        fn update() -> Bfr {
+            Bfr::new(1, Opt::UPDATE, true, "f1")
+        }
+        fn none() -> Bfr {
+            Bfr::new(0, Opt::empty(), false, "")
+        }
+    }
+    async fn both_fixture(ops: &[Opt], db: u8, res: &Bfr, id: usize) {
+        let (ctx, dir) = tenv(&[("f0", "f0")], &[("f0", "f1")]).await;
+        ctx.interactor
+            .log(format!("both_fixture case {}", id))
+            .await;
+        let src = dir.child("src/f0");
+        let dst = dir.child("dst/f0");
+        match db {
+            1 => {
+                ctx.db
+                    .set("this", dst.to_str().unwrap(), "0", "0")
+                    .await
+                    .unwrap();
+            }
+            2 => {
+                ctx.db
+                    .set(
+                        "this",
+                        dst.to_str().unwrap(),
+                        "0",
+                        &mtime(&dir.child("dst/f0")).to_string(),
+                    )
+                    .await
+                    .unwrap();
+            }
+            3 => {
+                ctx.db
+                    .set(
+                        "this",
+                        dst.to_str().unwrap(),
+                        &mtime(&dir.child("src/f0")).to_string(),
+                        "0",
+                    )
+                    .await
+                    .unwrap();
+            }
+            4 => {
+                ctx.db
+                    .set(
+                        "this",
+                        dst.to_str().unwrap(),
+                        &mtime(&dir.child("src/f0")).to_string(),
+                        &mtime(&dir.child("dst/f0")).to_string(),
+                    )
+                    .await
+                    .unwrap();
+            }
+            _ => {}
+        }
+        let ctx = SyncContext3::new(&ctx, "this", "this", ops);
+        let entries = ctx.scan("src/f0", "dst/f0").await.unwrap();
+        assert_eq!(entries.len(), res.len);
+        if res.len == 0 {
+            return;
+        }
+        assert_eq!(entries[0].opt, res.opt);
+        let tres = ctx.execute(&entries).await.unwrap();
+        assert_eq!(res.res, tres);
+        src.assert(res.content);
+        dst.assert(res.content);
+        let dst_db = ctx
+            .ctx
+            .db
+            .get_as::<u64>("this", dst.to_str().unwrap())
+            .await
+            .unwrap();
+        let (db_s, db_t) = dst_db.unwrap();
+        assert_eq!(mtime(&src), db_s);
+        assert_eq!(mtime(&dst), db_t);
+    }
+    #[tokio::test]
+    async fn both() {
+        let tests = [
+            (vec![Opt::OVERWRITE], 0, Bfr::overwrite()),
+            (vec![Opt::UPDATE], 0, Bfr::update()),
+            (vec![Opt::OVERWRITE, Opt::UPDATE], 0, Bfr::overwrite()),
+            (vec![Opt::UPDATE, Opt::OVERWRITE], 0, Bfr::update()),
+            (vec![Opt::OVERWRITE, Opt::empty()], 0, Bfr::overwrite()),
+            (vec![Opt::UPDATE, Opt::empty()], 0, Bfr::update()),
+            (vec![Opt::empty(), Opt::OVERWRITE], 0, Bfr::none()),
+            (vec![Opt::empty(), Opt::UPDATE], 0, Bfr::none()),
+            (vec![Opt::OVERWRITE], 1, Bfr::overwrite()),
+            (vec![Opt::UPDATE], 1, Bfr::update()),
+            (vec![Opt::OVERWRITE, Opt::UPDATE], 1, Bfr::overwrite()),
+            (vec![Opt::UPDATE, Opt::OVERWRITE], 1, Bfr::update()),
+            (vec![Opt::OVERWRITE, Opt::empty()], 1, Bfr::overwrite()),
+            (vec![Opt::UPDATE, Opt::empty()], 1, Bfr::update()),
+            (vec![Opt::empty(), Opt::OVERWRITE], 1, Bfr::none()),
+            (vec![Opt::empty(), Opt::UPDATE], 1, Bfr::none()),
+            (vec![Opt::OVERWRITE], 2, Bfr::overwrite()),
+            (vec![Opt::UPDATE, Opt::empty()], 2, Bfr::none()),
+            (vec![Opt::OVERWRITE, Opt::UPDATE], 2, Bfr::overwrite()),
+            (vec![Opt::UPDATE, Opt::OVERWRITE], 2, Bfr::overwrite()),
+            (vec![Opt::OVERWRITE, Opt::empty()], 2, Bfr::overwrite()),
+            (vec![Opt::UPDATE, Opt::empty()], 2, Bfr::none()),
+            (vec![Opt::empty(), Opt::OVERWRITE], 2, Bfr::none()),
+            (vec![Opt::empty(), Opt::UPDATE], 2, Bfr::none()),
+            (vec![Opt::OVERWRITE, Opt::empty()], 3, Bfr::none()),
+            (vec![Opt::UPDATE], 3, Bfr::update()),
+            (vec![Opt::OVERWRITE, Opt::UPDATE], 3, Bfr::update()),
+            (vec![Opt::UPDATE, Opt::OVERWRITE], 3, Bfr::update()),
+            (vec![Opt::OVERWRITE, Opt::empty()], 3, Bfr::none()),
+            (vec![Opt::UPDATE, Opt::empty()], 3, Bfr::update()),
+            (vec![Opt::empty(), Opt::OVERWRITE], 3, Bfr::none()),
+            (vec![Opt::empty(), Opt::UPDATE], 3, Bfr::none()),
+            (vec![Opt::OVERWRITE], 4, Bfr::none()),
+            (vec![Opt::UPDATE], 4, Bfr::none()),
+            (vec![Opt::OVERWRITE, Opt::UPDATE], 4, Bfr::none()),
+            (vec![Opt::UPDATE, Opt::OVERWRITE], 4, Bfr::none()),
+            (vec![Opt::OVERWRITE, Opt::empty()], 4, Bfr::none()),
+            (vec![Opt::UPDATE, Opt::empty()], 4, Bfr::none()),
+            (vec![Opt::empty(), Opt::OVERWRITE], 4, Bfr::none()),
+            (vec![Opt::empty(), Opt::UPDATE], 4, Bfr::none()),
+        ];
+        for (i, (ops, db, res)) in tests.iter().enumerate() {
+            both_fixture(ops, *db, res, i).await;
+        }
     }
 }

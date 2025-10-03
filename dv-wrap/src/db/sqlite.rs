@@ -1,8 +1,7 @@
+use super::dev::*;
 use std::path::Path;
 use tokio::sync::Mutex;
 use tracing::{debug, info};
-
-use crate::error::{Error, Result};
 
 #[derive(Debug)]
 pub struct Sqlite {
@@ -60,20 +59,20 @@ impl crate::db::DB for Sqlite {
         match row {
             Ok(s) => Ok(Some(s)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(Error::unknown(e)),
+            Err(e) => anyhow::bail!(e),
         }
     }
     async fn set(&self, uid: &str, key: &str, version: &str, latest: &str) -> Result<()> {
         debug!("cache set: {} {} {} {}", uid, key, version, latest);
-        self.conn
+        Ok(self
+            .conn
             .lock()
             .await
             .execute(
                 "INSERT OR REPLACE INTO cache (device, key, version, latest) VALUES (?, ?, ?, ?)",
                 [uid, key, version, latest],
             )
-            .map(|_| ())
-            .map_err(Error::unknown)
+            .map(|_| ())?)
     }
     async fn del(&self, uid: &str, key: &str) -> Result<()> {
         info!("cache del: {} {}", uid, key);
@@ -84,7 +83,7 @@ impl crate::db::DB for Sqlite {
         } else {
             conn.execute("DELETE FROM cache WHERE device = ?", [uid])
                 .map(|_| ())
-        }
-        .map_err(Error::unknown)
+        }?;
+        Ok(())
     }
 }

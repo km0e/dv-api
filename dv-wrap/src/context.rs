@@ -1,6 +1,9 @@
 use super::dev::*;
-use crate::{DeviceInfo, db::MultiDB};
-use dv_api::whatever;
+use crate::{
+    DeviceInfo,
+    db::MultiDB,
+    interactor::{DynInteractor, Interactor},
+};
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -21,9 +24,8 @@ impl Device {
 }
 
 pub struct Context {
-    pub dry_run: bool,
     pub db: MultiDB,
-    pub interactor: Box<dyn Interactor + Sync>,
+    pub interactor: Box<DynInteractor>,
     pub users: HashMap<String, User>,
     pub devices: HashMap<String, Device>,
     pub cache_dir: Option<std::path::PathBuf>,
@@ -31,13 +33,11 @@ pub struct Context {
 
 impl Context {
     pub fn new(
-        dry_run: bool,
         db: MultiDB,
         cache_dir: Option<std::path::PathBuf>,
         interactor: impl Interactor + Sync + 'static,
     ) -> Self {
         Self {
-            dry_run,
             db,
             interactor: Box::new(interactor),
             users: HashMap::new(),
@@ -57,7 +57,7 @@ impl Context {
         match self.users.get(uid) {
             Some(user) => Ok(user),
             None => {
-                whatever!("user {} not found", uid)
+                anyhow::bail!("user {} not found", uid)
             }
         }
     }
@@ -90,14 +90,6 @@ impl Context {
                 dev.users.push(uid.clone());
             }
         };
-        action!(
-            self,
-            true,
-            "add user {}, hid: {}, os: {}",
-            uid,
-            hid.unwrap_or_default(),
-            user.os()
-        );
         self.users.insert(uid, user);
         Ok(())
     }
@@ -106,15 +98,22 @@ impl Context {
         let pp = user
             .pty(script, self.interactor.window_size().await)
             .await?;
-        Ok(self.interactor.ask(pp).await?)
+        self.interactor.ask(pp).await
     }
 }
 
-macro_rules! action {
-    ($ctx:expr, $suc:expr, $fmt:expr, $($arg:tt)*) => {
-        use crossterm::style::Stylize;
-        $ctx.interactor.log(format!(concat!("[{}] {} ",$fmt), if $ctx.dry_run { "n" } else { "a" }, if $suc { "exec".green() } else { "skip".yellow() }, $($arg)*)).await;
-    };
+pub trait AsRefContext {
+    fn as_ref(&self) -> impl std::ops::Deref<Target = Context> + '_;
 }
 
-pub(crate) use action;
+impl AsRefContext for Context {
+    fn as_ref(&self) -> impl std::ops::Deref<Target = Context> + '_ {
+        self
+    }
+}
+
+impl AsRefContext for &Context {
+    fn as_ref(&self) -> impl std::ops::Deref<Target = Context> + '_ {
+        *self
+    }
+}

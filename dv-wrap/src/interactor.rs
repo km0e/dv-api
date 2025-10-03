@@ -9,10 +9,22 @@ use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
-use dv_api::Result;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, trace};
+
+#[async_trait::async_trait]
+pub trait Interactor {
+    async fn window_size(&self) -> WindowSize;
+    async fn log(&self, msg: String);
+    async fn ask(&self, pty: BoxedPty) -> Result<i32>;
+    /// # Parameters
+    /// - `msg`: The message to display to the user.
+    /// - `opts`: The options to display to the user. For example, `["y/exec", "n/do nothing"]`.
+    async fn confirm(&self, msg: String, opts: &[&str]) -> Result<usize>;
+}
+
+pub type DynInteractor = dyn Interactor + Sync;
 
 #[derive(Debug)]
 pub struct TermInteractor {}
@@ -33,7 +45,7 @@ impl Interactor for TermInteractor {
     async fn log(&self, msg: String) {
         println!("{msg}");
     }
-    async fn ask(&self, mut pty: BoxedPty) -> dv_api::Result<i32> {
+    async fn ask(&self, mut pty: BoxedPty) -> Result<i32> {
         let _guard = RawModeGuard::new()?;
 
         let mut stdin = noblock_stdin();

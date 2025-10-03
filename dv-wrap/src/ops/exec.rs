@@ -1,3 +1,5 @@
+use dv_api::core::Output;
+
 use super::dev::*;
 
 pub async fn exec(
@@ -6,32 +8,27 @@ pub async fn exec(
     script: impl AsRef<str>,
     reply: bool,
     executor: Option<ScriptExecutor>,
-) -> Result<bool> {
+) -> Result<Output> {
     let uid = uid.as_ref();
     let commands = script.as_ref();
     let user = ctx.get_user(uid)?;
-    if !ctx.dry_run {
-        let script = executor.map_or_else(
-            || Script::Whole(commands),
-            |executor| Script::Script {
-                executor,
-                input: commands,
-            },
-        );
-        if reply {
-            let pp = user.pty(script, ctx.interactor.window_size().await).await?;
+    let script = executor.map_or_else(
+        || Script::Whole(commands),
+        |executor| Script::Script {
+            executor,
+            input: commands,
+        },
+    );
+    if reply {
+        let pp = user.pty(script, ctx.interactor.window_size().await).await?;
 
-            let ec = ctx.interactor.ask(pp).await?;
-            if ec != 0 {
-                let msg = format!("unexpected exit code: {ec}");
-                ctx.interactor.log(msg.clone()).await;
-                whatever!("exec error: {}", msg);
-            }
-        } else {
-            let output = user.exec(script).output().await?;
-            ctx.interactor.log(output).await;
-        }
+        let ec = ctx.interactor.ask(pp).await?;
+        Ok(Output {
+            code: ec,
+            stdout: vec![],
+            stderr: vec![],
+        })
+    } else {
+        Ok(user.exec(script).await?)
     }
-    action!(ctx, true, "run {}", commands);
-    Ok(true)
 }
