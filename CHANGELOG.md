@@ -56,3 +56,13 @@
 
 - Better action confirmation for `sync` operation
 - Removed `dry-run` flag
+
+# Version 0.1.5 (2026-04-14)
+
+## dv-api
+
+## dv-wrap
+
+### Bug Fixes
+
+- Created missing cache directory before accessing cache files

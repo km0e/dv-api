@@ -17,7 +17,7 @@ pub use fs::*;
 mod dl;
 pub use dl::Dl;
 mod sync;
-pub use sync::{Entry as SyncEntry, Opt as SyncOpt, SyncContext3};
+pub use sync::{Entry as SyncEntry, Opt as SyncOpt, SyncContext};
 
 mod dotutils;
 pub use dotutils::*;

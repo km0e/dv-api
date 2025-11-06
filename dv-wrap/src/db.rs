@@ -26,8 +26,9 @@ impl MultiDB {
         self.dbs.push(Box::new(db));
     }
 
-    pub fn add_sqlite(&mut self, db_path: impl AsRef<std::path::Path>) {
-        self.dbs.push(Box::new(Sqlite::new(db_path)));
+    pub fn add_sqlite(&mut self, db_path: impl AsRef<std::path::Path>) -> Result<()> {
+        self.dbs.push(Box::new(Sqlite::new(db_path)?));
+        Ok(())
     }
 
     pub fn set_dir(&mut self, dir: std::path::PathBuf) {

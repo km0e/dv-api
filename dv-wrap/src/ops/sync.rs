@@ -231,14 +231,14 @@ impl<'a> ScanContext<'a> {
         Ok(entries)
     }
 }
-pub struct SyncContext3<'a> {
+pub struct SyncContext<'a> {
     ctx: &'a Context,
     opts: &'a [Opt],
     suid: &'a str,
     duid: &'a str,
 }
 
-impl<'a> SyncContext3<'a> {
+impl<'a> SyncContext<'a> {
     pub fn new(ctx: &'a Context, suid: &'a str, duid: &'a str, opts: &'a [Opt]) -> Self {
         Self {
             ctx,
@@ -402,7 +402,7 @@ mod tests {
     use dv_api::multi::Config;
 
     use super::Opt;
-    use super::SyncContext3;
+    use super::SyncContext;
 
     fn mtime(path: &Path) -> u64 {
         path.metadata()
@@ -422,7 +422,7 @@ mod tests {
     async fn tenv(src: &[(&str, &str)], dst: &[(&str, &str)]) -> (Context, TempDir) {
         let interactor = TermInteractor::new().unwrap();
         let mut db = MultiDB::default();
-        db.add_db(Sqlite::memory());
+        db.add_db(Sqlite::memory().unwrap());
         let dir = TempDir::new().unwrap();
         let mut cfg = Config::default();
         cfg.set("mount", dir.to_string_lossy());
@@ -445,7 +445,7 @@ mod tests {
     #[tokio::test]
     async fn no_file() {
         let (ctx, _) = tenv(&[], &[]).await;
-        let ctx = SyncContext3::new(&ctx, "this", "this", &[Opt::UPDATE, Opt::OVERWRITE]);
+        let ctx = SyncContext::new(&ctx, "this", "this", &[Opt::UPDATE, Opt::OVERWRITE]);
         let entries = ctx.scan("src/f0", "dst/f0").await;
         assert!(entries.is_err());
     }
@@ -476,7 +476,7 @@ mod tests {
     }
     async fn local_fixture(ops: &[Opt], res: LocalFixtureResult) {
         let (ctx, dir) = tenv(&[("f0", "f0")], &[]).await;
-        let ctx = SyncContext3::new(&ctx, "this", "this", ops);
+        let ctx = SyncContext::new(&ctx, "this", "this", ops);
         let entries = ctx.scan("src/f0", "dst/f0").await.unwrap();
         assert_eq!(entries.len(), res.len);
         if res.len == 0 {
@@ -556,7 +556,7 @@ mod tests {
     }
     async fn remote_fixture(ops: &[Opt], res: RemoteFixtureResult) {
         let (ctx, dir) = tenv(&[], &[("f0", "f0")]).await;
-        let ctx = SyncContext3::new(&ctx, "this", "this", ops);
+        let ctx = SyncContext::new(&ctx, "this", "this", ops);
         let entries = ctx.scan("src/f0", "dst/f0").await.unwrap();
         assert_eq!(entries.len(), res.len);
         if res.len == 0 {
@@ -684,7 +684,7 @@ mod tests {
             }
             _ => {}
         }
-        let ctx = SyncContext3::new(&ctx, "this", "this", ops);
+        let ctx = SyncContext::new(&ctx, "this", "this", ops);
         let entries = ctx.scan("src/f0", "dst/f0").await.unwrap();
         assert_eq!(entries.len(), res.len);
         if res.len == 0 {

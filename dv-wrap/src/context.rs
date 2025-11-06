@@ -4,7 +4,7 @@ use crate::{
     db::MultiDB,
     interactor::{DynInteractor, Interactor},
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Debug)]
 pub struct Device {
@@ -24,7 +24,7 @@ impl Device {
 }
 
 pub struct Context {
-    pub db: MultiDB,
+    pub db: Arc<MultiDB>,
     pub interactor: Box<DynInteractor>,
     pub users: HashMap<String, User>,
     pub devices: HashMap<String, Device>,
@@ -38,7 +38,7 @@ impl Context {
         interactor: impl Interactor + Sync + 'static,
     ) -> Self {
         Self {
-            db,
+            db: Arc::new(db),
             interactor: Box::new(interactor),
             users: HashMap::new(),
             devices: HashMap::new(),
@@ -54,12 +54,10 @@ impl Context {
     }
     pub fn get_user(&self, uid: impl AsRef<str>) -> Result<&User> {
         let uid = uid.as_ref();
-        match self.users.get(uid) {
-            Some(user) => Ok(user),
-            None => {
-                anyhow::bail!("user {} not found", uid)
-            }
+        if let Some(user) = self.users.get(uid) {
+            return Ok(user);
         }
+        Err(anyhow::anyhow!("user {} not found", uid))
     }
     pub async fn add_user(&mut self, uid: String, mut user: User) -> Result<()> {
         let hid = user.vars.get("hid").cloned();

@@ -9,10 +9,21 @@ pub struct Sqlite {
 }
 
 impl Sqlite {
-    pub fn new(db_path: impl AsRef<Path>) -> Self {
+    pub fn new(db_path: impl AsRef<Path>) -> Result<Self> {
         let db_path = db_path.as_ref();
         info!("use sqlite path {}", db_path.display());
-        let conn = rusqlite::Connection::open(db_path).expect("open sqlite connection");
+        let conn = match rusqlite::Connection::open(db_path) {
+            Ok(c) => c,
+            Err(e) => {
+                if let Some(rusqlite::ErrorCode::CannotOpen) = e.sqlite_error_code() {
+                    let parent = db_path
+                        .parent()
+                        .ok_or_else(|| anyhow::anyhow!("sqlite db path should have parent"))?;
+                    std::fs::create_dir_all(parent)?;
+                }
+                rusqlite::Connection::open(db_path)?
+            }
+        };
         conn.execute(
             "CREATE TABLE IF NOT EXISTS cache (
                 device TEXT NOT NULL,
@@ -22,15 +33,15 @@ impl Sqlite {
                 PRIMARY KEY (device, key)
             )",
             [],
-        )
-        .expect("create initial table");
-        Self {
+        )?;
+        info!("sqlite db initialized");
+        Ok(Self {
             conn: Mutex::new(conn),
-        }
+        })
     }
     #[cfg(test)]
-    pub fn memory() -> Self {
-        let conn = rusqlite::Connection::open_in_memory().expect("open sqlite connection");
+    pub fn memory() -> Result<Self> {
+        let conn = rusqlite::Connection::open_in_memory()?;
         conn.execute(
             "CREATE TABLE IF NOT EXISTS cache (
                 device TEXT NOT NULL,
@@ -40,11 +51,10 @@ impl Sqlite {
                 PRIMARY KEY (device, key)
             )",
             [],
-        )
-        .expect("create initial table");
-        Self {
+        )?;
+        Ok(Self {
             conn: Mutex::new(conn),
-        }
+        })
     }
 }
 

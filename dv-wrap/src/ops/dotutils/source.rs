@@ -44,7 +44,7 @@ impl Op<'_> {
         schema: &Schema<Vec<String>>,
     ) -> Result<Vec<Entry>> {
         let src = ctx.get_user(self.user)?;
-        let copy_ctx = crate::ops::SyncContext3::new(ctx, self.user, dst, &opt.copy_action);
+        let copy_ctx = crate::ops::SyncContext::new(ctx, self.user, dst, &opt.copy_action);
         let mut entries = Vec::new();
         for (name, src_path) in &self.source.paths {
             let Some(dst_paths) = schema.paths.get(name) else {
@@ -76,7 +76,7 @@ impl Op<'_> {
         src: &str,
         schema: &Schema<Vec<String>>,
     ) -> Result<Vec<Entry>> {
-        let copy_ctx = crate::ops::SyncContext3::new(ctx, src, self.user, &opt.copy_action);
+        let copy_ctx = crate::ops::SyncContext::new(ctx, src, self.user, &opt.copy_action);
         let src = ctx.get_user(src)?;
         let mut entries = Vec::new();
         for (name, src_paths) in &schema.paths {
